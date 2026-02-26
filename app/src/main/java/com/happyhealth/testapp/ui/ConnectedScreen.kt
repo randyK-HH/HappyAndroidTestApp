@@ -12,6 +12,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.happyhealth.bleplatform.api.ConnectionId
 import com.happyhealth.bleplatform.api.HpyConnectionState
+import com.happyhealth.bleplatform.internal.command.ResponseParser
+import com.happyhealth.bleplatform.internal.model.DaqConfigData
+import com.happyhealth.bleplatform.internal.model.DeviceStatusData
 import com.happyhealth.testapp.TestAppViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -29,6 +32,9 @@ fun ConnectedScreen(
         LaunchedEffect(Unit) { onBack() }
         return
     }
+
+    var showStatusDialog by remember { mutableStateOf(false) }
+    var showDaqConfigDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -119,7 +125,10 @@ fun ConnectedScreen(
                     Text("Identify")
                 }
                 Button(
-                    onClick = { viewModel.getDeviceStatus(connId) },
+                    onClick = {
+                        viewModel.getDeviceStatus(connId)
+                        showStatusDialog = true
+                    },
                     enabled = ring.state == HpyConnectionState.READY,
                     modifier = Modifier.weight(1f),
                 ) {
@@ -132,7 +141,10 @@ fun ConnectedScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Button(
-                    onClick = { viewModel.getDaqConfig(connId) },
+                    onClick = {
+                        viewModel.getDaqConfig(connId)
+                        showDaqConfigDialog = true
+                    },
                     enabled = ring.state == HpyConnectionState.READY,
                     modifier = Modifier.weight(1f),
                 ) {
@@ -162,6 +174,128 @@ fun ConnectedScreen(
             Spacer(modifier = Modifier.height(16.dp))
         }
     }
+
+    // ---- Device Status Dialog ----
+    if (showStatusDialog && ring.lastStatus != null) {
+        DeviceStatusDialog(
+            status = ring.lastStatus!!,
+            extendedStatus = ring.extendedStatus,
+            onDismiss = { showStatusDialog = false },
+        )
+    }
+
+    // ---- DAQ Config Dialog ----
+    if (showDaqConfigDialog && ring.daqConfig != null) {
+        DaqConfigDialog(
+            config = ring.daqConfig!!,
+            onDismiss = { showDaqConfigDialog = false },
+        )
+    }
+}
+
+@Composable
+private fun DeviceStatusDialog(
+    status: DeviceStatusData,
+    extendedStatus: ResponseParser.ExtendedDeviceStatus?,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Device Status") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                val small = MaterialTheme.typography.bodySmall
+                Text("Physical: ${status.phyString}", style = small)
+                Text("Charger: ${status.chargerStateString}", style = small)
+                Text("Charging: ${status.chargingStateString}", style = small)
+                Text("Charging Mode: ${status.chargingModeString}", style = small)
+                Text("Charge Blocked: ${status.chargerBlockedReasonString}", style = small)
+                Text("Charger Rev ID: ${status.chargerRevId}", style = small)
+                Text("Charger Status: ${status.chargerStatusString}", style = small)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Battery: ${status.soc}% (${status.batteryVoltage} mV)", style = small)
+                Text("DAQ: ${status.daqString}", style = small)
+                Text("Unsynced Frames: ${status.unsyncedFrames}", style = small)
+                Text("Sync: ${status.syncString}", style = small)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Opportunistic: ${status.opportunisticSamplingStateString}", style = small)
+                Text("Opportunistic Time: ${status.opportunisticStateTime}s", style = small)
+                Text("Ship Mode: ${status.shipModeStatusString}", style = small)
+                Text("Sleep State: ${status.sleepStateString}", style = small)
+                Text("Pseudo Ring: ${status.pseudoRingOnOffString}", style = small)
+                Text("Boot Handshake: ${status.bootHandshakeFlagString}", style = small)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("SendUTC Flags: 0x${status.sendUtcFlags.toString(16).uppercase().padStart(2, '0')}", style = small)
+                Text("Notif Sender: ${status.notifSenderString}", style = small)
+                Text("BLE CI: ${status.bleCi} ms", style = small)
+                Text("Clock Rate: ${status.clockRateString}", style = small)
+                if (extendedStatus != null) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text("Extended", style = MaterialTheme.typography.labelMedium)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text("BP State: ${extendedStatus.bpStateString}", style = small)
+                    Text("BP Time Left: ${extendedStatus.bpTimeLeftSec}s", style = small)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Dismiss") }
+        },
+    )
+}
+
+@Composable
+private fun DaqConfigDialog(config: DaqConfigData, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("DAQ Configuration") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                val small = MaterialTheme.typography.bodySmall
+                Text("Version: ${config.version}", style = small)
+                Text("Mode: ${config.modeString} (${config.mode})", style = small)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Ambient Light: ${if (config.ambientLightEn) "ON" else "OFF"}, ${config.ambientLightPeriodMs} ms", style = small)
+                Text("Ambient Temp: ${if (config.ambientTempEn) "ON" else "OFF"}, ${config.ambientTempPeriodMs} ms", style = small)
+                Text("Skin Temp: ${if (config.skinTempEn) "ON" else "OFF"}, ${config.skinTempPeriodMs} ms", style = small)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("PPG Cycle Time: ${config.ppgCycleTimeMs} ms", style = small)
+                Text("PPG Interval Time: ${config.ppgIntervalTimeMs} ms", style = small)
+                Text("PPG On During Sleep: ${if (config.ppgOnDuringSleepEn) "ON" else "OFF"}", style = small)
+                Text("PPG FSR: ${config.ppgFsr}", style = small)
+                Text("PPG Stop Config: ${config.ppgStopConfig}", style = small)
+                Text("PPG AGC Channel Config: ${config.ppgAgcChannelConfig}", style = small)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Compressed Sensing: ${if (config.compressedSensingEn) "ON" else "OFF"}", style = small)
+                Text("CS Mode: ${config.csModeString} (${config.csMode})", style = small)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Multi-Spectral: ${if (config.multiSpectralEn) "ON" else "OFF"}, ${config.multiSpectralPeriodMs} ms", style = small)
+                Text("SF Max Latency: ${config.sfMaxLatencyMs} ms", style = small)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("EDA Sweep: ${if (config.edaSweepEn) "ON" else "OFF"}, ${config.edaSweepPeriodMs} ms", style = small)
+                Text("EDA Sweep Param Cfg: ${config.edaSweepParamCfg}", style = small)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Acc ULP: ${config.accUlpEn}", style = small)
+                Text("Acc 2G During Sleep: ${if (config.acc2gDuringSleepEn) "ON" else "OFF"}", style = small)
+                Text("Acc Inactivity Config: ${config.accInactivityConfig}", style = small)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Opp Sample: ${if (config.oppSampleEn) "ON" else "OFF"}, ${config.oppSamplePeriodMs} ms", style = small)
+                Text("Opp Sample On-Time: ${config.oppSampleOnTimeMs} ms", style = small)
+                Text("Opp Sample Alt Mode: ${config.oppSampleAltMode}", style = small)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Memfault Config: ${config.memfaultConfig}", style = small)
+                Text("Sleep Thresh Config: ${config.sleepThreshConfig}", style = small)
+                Text("Reset Ring Cfg: ${config.resetRingCfg}", style = small)
+                Text("Daily DAQ Mode Cfg: ${config.dailyDaqModeCfg}", style = small)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Dismiss") }
+        },
+    )
 }
 
 @Composable

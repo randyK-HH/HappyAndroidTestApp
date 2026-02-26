@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothDevice
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.happyhealth.bleplatform.api.*
+import com.happyhealth.bleplatform.internal.command.ResponseParser
 import com.happyhealth.bleplatform.internal.model.DeviceInfoData
 import com.happyhealth.bleplatform.internal.model.DeviceStatusData
 import com.happyhealth.bleplatform.internal.model.DaqConfigData
@@ -22,6 +23,7 @@ data class ConnectedRingInfo(
     val state: HpyConnectionState,
     val deviceInfo: DeviceInfoData? = null,
     val lastStatus: DeviceStatusData? = null,
+    val extendedStatus: ResponseParser.ExtendedDeviceStatus? = null,
     val daqConfig: DaqConfigData? = null,
 )
 
@@ -98,6 +100,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
 
     fun getDeviceStatus(connId: ConnectionId) {
         api.getDeviceStatus(connId)
+        api.getExtendedDeviceStatus(connId)
     }
 
     fun getDaqConfig(connId: ConnectionId) {
@@ -120,10 +123,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
             }
             is HpyEvent.DeviceInfo -> {
                 updateRing(event.connId) {
-                    it.copy(
-                        deviceInfo = event.info,
-                        name = event.info.serialNumber.ifEmpty { it.name },
-                    )
+                    it.copy(deviceInfo = event.info)
                 }
                 addLog(event.connId, "DeviceInfo: serial=${event.info.serialNumber}, fw=${event.info.fwVersion}, model=${event.info.modelNumber}")
             }
@@ -131,6 +131,11 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                 updateRing(event.connId) { it.copy(lastStatus = event.status) }
                 val s = event.status
                 addLog(event.connId, "DevStatus: ${s.phyString}, DAQ=${s.daqString}, SOC=${s.soc}%, unsynced=${s.unsyncedFrames}, sync=${s.syncString}")
+            }
+            is HpyEvent.ExtendedDeviceStatus -> {
+                updateRing(event.connId) { it.copy(extendedStatus = event.extStatus) }
+                val ext = event.extStatus
+                addLog(event.connId, "ExtDevStatus: bp=${ext.bpStateString}, timeLeft=${ext.bpTimeLeftSec}s")
             }
             is HpyEvent.DaqConfig -> {
                 updateRing(event.connId) { it.copy(daqConfig = event.config) }
