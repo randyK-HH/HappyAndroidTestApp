@@ -11,7 +11,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import android.content.Intent
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.happyhealth.bleplatform.api.ConnectionId
@@ -40,6 +42,7 @@ fun ConnectedScreen(
 
     var showStatusDialog by remember { mutableStateOf(false) }
     var showDaqConfigDialog by remember { mutableStateOf(false) }
+    var showShareDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -150,7 +153,7 @@ fun ConnectedScreen(
                     shape = gridShape,
                     contentPadding = gridContentPadding,
                 ) {
-                    Text("Status")
+                    Text("Dev Status")
                 }
                 Button(
                     onClick = {
@@ -228,7 +231,10 @@ fun ConnectedScreen(
             val isActivelyDownloading = ring.state == HpyConnectionState.DOWNLOADING
             val isWaiting = ring.state == HpyConnectionState.WAITING
 
-            DownloadSectionHeader("Download", ring.downloadState)
+            val shareAction: (() -> Unit)? = if (!isDownloading) {
+                { showShareDialog = true }
+            } else null
+            DownloadSectionHeader("Download", ring.downloadState, shareAction)
             if (isActivelyDownloading) {
                 Spacer(modifier = Modifier.height(4.dp))
                 if (ring.downloadTotal > 0) {
@@ -307,6 +313,14 @@ fun ConnectedScreen(
             config = ring.daqConfig!!,
             fingerDetectionOn = ring.fingerDetectionOn,
             onDismiss = { showDaqConfigDialog = false },
+        )
+    }
+
+    // ---- Share HPY2 File Dialog ----
+    if (showShareDialog) {
+        ShareHpy2Dialog(
+            viewModel = viewModel,
+            onDismiss = { showShareDialog = false },
         )
     }
 }
@@ -459,19 +473,19 @@ private fun CommandSectionHeader(title: String, commandStatus: String?) {
 }
 
 @Composable
-private fun DownloadSectionHeader(title: String, downloadState: String?) {
+private fun DownloadSectionHeader(title: String, downloadState: String?, onShare: (() -> Unit)?) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             title,
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.align(Alignment.Bottom),
         )
         if (downloadState != null) {
             val stateColor = when (downloadState) {
@@ -485,10 +499,69 @@ private fun DownloadSectionHeader(title: String, downloadState: String?) {
                 fontWeight = FontWeight.Bold,
                 color = stateColor,
             )
+        } else if (onShare != null) {
+            TextButton(
+                onClick = onShare,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+            ) {
+                Text("SHARE", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+            }
         }
     }
     HorizontalDivider()
     Spacer(modifier = Modifier.height(4.dp))
+}
+
+@Composable
+private fun ShareHpy2Dialog(viewModel: TestAppViewModel, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val files = remember { viewModel.listHpy2Files() }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Share HPY2 File") },
+        text = {
+            if (files.isEmpty()) {
+                Text("No .hpy2 files found.", style = MaterialTheme.typography.bodyMedium)
+            } else {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                ) {
+                    files.forEach { file ->
+                        val sizeKb = file.length() / 1024
+                        val frames = file.length() / 4096
+                        TextButton(
+                            onClick = {
+                                val intent = viewModel.shareHpy2File(file.absolutePath)
+                                if (intent != null) {
+                                    context.startActivity(Intent.createChooser(intent, "Share HPY2 file"))
+                                }
+                                onDismiss()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    file.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                Text(
+                                    "${frames} frames (${sizeKb} KB)",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }
 
 @Composable

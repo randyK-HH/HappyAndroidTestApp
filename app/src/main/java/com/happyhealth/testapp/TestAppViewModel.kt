@@ -1,7 +1,9 @@
 package com.happyhealth.testapp
 
 import android.app.Application
+import android.content.Intent
 import android.bluetooth.BluetoothDevice
+import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.happyhealth.bleplatform.api.*
@@ -162,6 +164,28 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         if (writer != null) {
             addLog(connId, "HPY2 file closed: ${writer.totalFramesWritten} frames written")
             writer.destroy()
+        }
+    }
+
+    fun listHpy2Files(): List<java.io.File> {
+        val baseDir = getApplication<Application>().getExternalFilesDir(null) ?: return emptyList()
+        val folder = java.io.File(baseDir, "BLE_HPY2_DATA")
+        if (!folder.isDirectory) return emptyList()
+        return folder.listFiles { f -> f.extension == "hpy2" }
+            ?.sortedByDescending { it.lastModified() }
+            ?: emptyList()
+    }
+
+    fun shareHpy2File(path: String): Intent? {
+        val file = java.io.File(path)
+        if (!file.exists()) return null
+
+        val context = getApplication<Application>()
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        return Intent(Intent.ACTION_SEND).apply {
+            type = "application/octet-stream"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
     }
 
