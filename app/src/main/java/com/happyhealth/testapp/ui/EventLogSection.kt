@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -75,7 +76,64 @@ fun EventLogSection(
 }
 
 @Composable
-private fun LogEntryRow(entry: LogEntry) {
+fun FullScreenEventLog(
+    connId: ConnectionId,
+    viewModel: TestAppViewModel,
+    modifier: Modifier = Modifier,
+) {
+    val connectionLogs by viewModel.connectionLogs.collectAsState()
+    val logs = connectionLogs[connId.value] ?: emptyList()
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(logs.size) {
+        if (logs.isNotEmpty()) {
+            listState.animateScrollToItem(logs.size - 1)
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 8.dp),
+    ) {
+        Text(
+            "Event Log",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(vertical = 4.dp),
+        )
+        HorizontalDivider()
+        Spacer(modifier = Modifier.height(4.dp))
+
+        SelectionContainer(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+        ) {
+            if (logs.isEmpty()) {
+                Text(
+                    "No events yet",
+                    modifier = Modifier.padding(8.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize().padding(4.dp),
+                ) {
+                    items(logs, key = { it.id }) { entry ->
+                        LogEntryRow(entry)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun LogEntryRow(entry: LogEntry) {
     val timeFormat = remember { SimpleDateFormat("HH:mm:ss.SSS", Locale.US) }
     val timeStr = timeFormat.format(Date(entry.timestamp))
 

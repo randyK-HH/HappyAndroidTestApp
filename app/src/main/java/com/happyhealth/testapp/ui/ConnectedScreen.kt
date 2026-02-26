@@ -1,6 +1,8 @@
 package com.happyhealth.testapp.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -56,16 +58,28 @@ fun ConnectedScreen(
             )
         },
     ) { paddingValues ->
+        val pagerState = rememberPagerState(pageCount = { 2 })
+
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues),
+        ) { page ->
+        if (page == 1) {
+            FullScreenEventLog(connId = connId, viewModel = viewModel)
+        } else {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
                 .padding(horizontal = 16.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
             // ---- State ----
             val stateColor = when (ring.state) {
                 HpyConnectionState.READY -> MaterialTheme.colorScheme.primary
+                HpyConnectionState.DOWNLOADING -> MaterialTheme.colorScheme.primary
+                HpyConnectionState.WAITING -> MaterialTheme.colorScheme.tertiary
                 HpyConnectionState.HANDSHAKING, HpyConnectionState.CONNECTING ->
                     MaterialTheme.colorScheme.tertiary
                 HpyConnectionState.DISCONNECTED -> MaterialTheme.colorScheme.error
@@ -119,7 +133,7 @@ fun ConnectedScreen(
             val gridRowHeight = 38.dp
             val gridGap = 2.dp
             val gridContentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-            val isReady = ring.state == HpyConnectionState.READY
+            val isReady = ring.state == HpyConnectionState.READY || ring.state == HpyConnectionState.WAITING
 
             CommandSectionHeader("Commands", ring.commandStatus)
             Row(
@@ -211,9 +225,11 @@ fun ConnectedScreen(
             val canStartDownload = isReady &&
                 (ring.deviceInfo?.firmwareTier ?: FirmwareTier.TIER_0) >= FirmwareTier.TIER_1
             val isDownloading = ring.isDownloading
+            val isActivelyDownloading = ring.state == HpyConnectionState.DOWNLOADING
+            val isWaiting = ring.state == HpyConnectionState.WAITING
 
-            SectionHeader("Download")
-            if (isDownloading) {
+            DownloadSectionHeader("Download", ring.downloadState)
+            if (isActivelyDownloading) {
                 Spacer(modifier = Modifier.height(4.dp))
                 if (ring.downloadTotal > 0) {
                     @Suppress("DEPRECATION")
@@ -230,6 +246,11 @@ fun ConnectedScreen(
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     Text("Starting download...", style = MaterialTheme.typography.bodySmall)
                 }
+                Spacer(modifier = Modifier.height(4.dp))
+            } else if (isWaiting) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Waiting for data...", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary)
                 Spacer(modifier = Modifier.height(4.dp))
             }
             if (ring.totalFramesDownloaded > 0 && !isDownloading) {
@@ -266,7 +287,9 @@ fun ConnectedScreen(
             EventLogSection(connId = connId, viewModel = viewModel)
 
             Spacer(modifier = Modifier.height(16.dp))
-        }
+        } // Column
+        } // else (page 0)
+        } // HorizontalPager
     }
 
     // ---- Device Status Dialog ----
@@ -322,7 +345,7 @@ private fun DeviceStatusDialog(
                 Spacer(modifier = Modifier.height(4.dp))
                 Text("SendUTC Flags: 0x${status.sendUtcFlags.toString(16).uppercase().padStart(2, '0')}", style = small)
                 Text("Notif Sender: ${status.notifSenderString}", style = small)
-                Text("BLE CI: ${status.bleCi} ms", style = small)
+                Text("BLE CI: ${status.bleCiValue} ms (inprog=${status.bleCiUpdateInProgress})", style = small)
                 Text("Clock Rate: ${status.clockRateString}", style = small)
                 if (extendedStatus != null) {
                     Spacer(modifier = Modifier.height(6.dp))
@@ -428,6 +451,39 @@ private fun CommandSectionHeader(title: String, commandStatus: String?) {
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 color = statusColor,
+            )
+        }
+    }
+    HorizontalDivider()
+    Spacer(modifier = Modifier.height(4.dp))
+}
+
+@Composable
+private fun DownloadSectionHeader(title: String, downloadState: String?) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        if (downloadState != null) {
+            val stateColor = when (downloadState) {
+                "Downloading" -> MaterialTheme.colorScheme.primary
+                "Waiting" -> MaterialTheme.colorScheme.tertiary
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            }
+            Text(
+                downloadState,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = stateColor,
             )
         }
     }

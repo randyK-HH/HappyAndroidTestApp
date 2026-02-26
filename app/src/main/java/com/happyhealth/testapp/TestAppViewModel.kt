@@ -36,6 +36,7 @@ data class ConnectedRingInfo(
     val totalFramesDownloaded: Int = 0,
     val batchStartMs: Long = 0L,
     val commandStatus: String? = null,
+    val downloadState: String? = null,
 )
 
 data class LogEntry(
@@ -66,6 +67,9 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
 
     // Auto-clear timers for command status
     private val statusClearJobs = mutableMapOf<Int, Job>()
+
+    // Per-connection frame writers for HPY2 file output
+    private val frameWriters = mutableMapOf<Int, FrameWriter>()
 
     val discoveredDevices: StateFlow<List<ScannedDeviceInfo>>
     val isScanning: StateFlow<Boolean>
@@ -104,6 +108,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun disconnect(connId: ConnectionId) {
+        frameWriters.remove(connId.value)?.destroy()
         api.disconnect(connId)
         _connectedRings.value = _connectedRings.value - connId.value
     }
@@ -144,22 +149,38 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun startDownload(connId: ConnectionId) {
+        val writer = FrameWriter(getApplication())
+        writer.ensureFileOpen()
+        frameWriters[connId.value] = writer
+        addLog(connId, "HPY2 file: ${writer.filePath}")
         api.startDownload(connId)
     }
 
     fun stopDownload(connId: ConnectionId) {
         api.stopDownload(connId)
+        val writer = frameWriters.remove(connId.value)
+        if (writer != null) {
+            addLog(connId, "HPY2 file closed: ${writer.totalFramesWritten} frames written")
+            writer.destroy()
+        }
     }
 
     private fun handleEvent(event: HpyEvent) {
         when (event) {
             is HpyEvent.StateChanged -> {
+                val dlState = when (event.state) {
+                    HpyConnectionState.DOWNLOADING -> "Downloading"
+                    HpyConnectionState.WAITING -> "Waiting"
+                    else -> null
+                }
                 updateRing(event.connId) {
                     it.copy(
                         state = event.state,
-                        isDownloading = event.state == HpyConnectionState.DOWNLOADING,
+                        isDownloading = event.state == HpyConnectionState.DOWNLOADING ||
+                            event.state == HpyConnectionState.WAITING,
                         batchStartMs = if (event.state == HpyConnectionState.DOWNLOADING)
-                            System.currentTimeMillis() else 0L,
+                            System.currentTimeMillis() else it.batchStartMs,
+                        downloadState = dlState,
                     )
                 }
                 addLog(event.connId, "State -> ${event.state}")
@@ -179,7 +200,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                     )
                 }
                 val s = event.status
-                addLog(event.connId, "DevStatus: ${s.phyString}, DAQ=${s.daqString}, SOC=${s.soc}%, unsynced=${s.unsyncedFrames}, sync=${s.syncString}")
+                addLog(event.connId, "DevStatus: ${s.phyString}, DAQ=${s.daqString}, SOC=${s.soc}%, unsynced=${s.unsyncedFrames}, sync=${s.syncString}, notif=${s.notifSenderString}, CI=${s.bleCiValue}ms, inprog=${s.bleCiUpdateInProgress}")
             }
             is HpyEvent.ExtendedDeviceStatus -> {
                 setCommandStatus(event.connId, "(${cmdHex(CommandId.GET_EXTENDED_DEVICE_STATUS)}) Success")
@@ -236,8 +257,10 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                     addLog(event.connId, "DownloadProgress: ${event.framesDownloaded}/${event.framesTotal} (${event.transport})")
                 }
             }
+            is HpyEvent.DownloadFrame -> {
+                frameWriters[event.connId.value]?.writeFrame(event.frameData)
+            }
             is HpyEvent.DownloadComplete -> {
-                updateRing(event.connId) { it.copy(isDownloading = false) }
                 addLog(event.connId, "DownloadComplete: ${event.totalFrames} frames")
             }
             is HpyEvent.DeviceDiscovered -> { /* Handled via discoveredDevices StateFlow */ }
@@ -287,6 +310,8 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
 
     override fun onCleared() {
         super.onCleared()
+        frameWriters.values.forEach { it.destroy() }
+        frameWriters.clear()
         api.destroy()
     }
 }
