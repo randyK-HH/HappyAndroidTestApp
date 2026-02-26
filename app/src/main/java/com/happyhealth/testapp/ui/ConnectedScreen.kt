@@ -47,7 +47,7 @@ fun ConnectedScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(ring.name) },
+                title = { Text(ring.name, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
