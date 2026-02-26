@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -32,7 +33,9 @@ fun ScanScreen(
         // Scan toggle button
         Button(
             onClick = { viewModel.toggleScan() },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().height(38.dp),
+            shape = RoundedCornerShape(4.dp),
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
             colors = if (isScanning) {
                 ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
             } else {

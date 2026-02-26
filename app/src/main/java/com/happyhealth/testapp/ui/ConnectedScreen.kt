@@ -2,6 +2,7 @@ package com.happyhealth.testapp.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -112,15 +113,23 @@ fun ConnectedScreen(
             }
 
             // ---- Command Buttons ----
+            val gridShape = RoundedCornerShape(4.dp)
+            val gridRowHeight = 38.dp
+            val gridGap = 2.dp
+            val gridContentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+            val isReady = ring.state == HpyConnectionState.READY
+
             SectionHeader("Commands")
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(gridGap),
             ) {
                 Button(
                     onClick = { viewModel.identify(connId) },
-                    enabled = ring.state == HpyConnectionState.READY,
-                    modifier = Modifier.weight(1f),
+                    enabled = isReady,
+                    modifier = Modifier.weight(1f).height(gridRowHeight),
+                    shape = gridShape,
+                    contentPadding = gridContentPadding,
                 ) {
                     Text("Identify")
                 }
@@ -129,38 +138,46 @@ fun ConnectedScreen(
                         viewModel.getDeviceStatus(connId)
                         showStatusDialog = true
                     },
-                    enabled = ring.state == HpyConnectionState.READY,
-                    modifier = Modifier.weight(1f),
+                    enabled = isReady,
+                    modifier = Modifier.weight(1f).height(gridRowHeight),
+                    shape = gridShape,
+                    contentPadding = gridContentPadding,
                 ) {
                     Text("Status")
                 }
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
                 Button(
                     onClick = {
                         viewModel.getDaqConfig(connId)
                         showDaqConfigDialog = true
                     },
-                    enabled = ring.state == HpyConnectionState.READY,
-                    modifier = Modifier.weight(1f),
+                    enabled = isReady,
+                    modifier = Modifier.weight(1f).height(gridRowHeight),
+                    shape = gridShape,
+                    contentPadding = gridContentPadding,
                 ) {
                     Text("DAQ Config")
                 }
+            }
+            Spacer(modifier = Modifier.height(gridGap))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(gridGap),
+            ) {
                 Button(
                     onClick = { viewModel.startDaq(connId) },
-                    enabled = ring.state == HpyConnectionState.READY,
-                    modifier = Modifier.weight(1f),
+                    enabled = isReady,
+                    modifier = Modifier.weight(1f).height(gridRowHeight),
+                    shape = gridShape,
+                    contentPadding = gridContentPadding,
                 ) {
                     Text("Start DAQ")
                 }
                 Button(
                     onClick = { viewModel.stopDaq(connId) },
-                    enabled = ring.state == HpyConnectionState.READY,
-                    modifier = Modifier.weight(1f),
+                    enabled = isReady,
+                    modifier = Modifier.weight(1f).height(gridRowHeight),
+                    shape = gridShape,
+                    contentPadding = gridContentPadding,
                 ) {
                     Text("Stop DAQ")
                 }
