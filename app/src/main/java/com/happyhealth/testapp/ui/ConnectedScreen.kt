@@ -9,6 +9,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.happyhealth.bleplatform.api.ConnectionId
@@ -16,6 +17,7 @@ import com.happyhealth.bleplatform.api.HpyConnectionState
 import com.happyhealth.bleplatform.internal.command.ResponseParser
 import com.happyhealth.bleplatform.internal.model.DaqConfigData
 import com.happyhealth.bleplatform.internal.model.DeviceStatusData
+import com.happyhealth.bleplatform.internal.model.FirmwareTier
 import com.happyhealth.testapp.TestAppViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -119,20 +121,11 @@ fun ConnectedScreen(
             val gridContentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
             val isReady = ring.state == HpyConnectionState.READY
 
-            SectionHeader("Commands")
+            CommandSectionHeader("Commands", ring.commandStatus)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(gridGap),
             ) {
-                Button(
-                    onClick = { viewModel.identify(connId) },
-                    enabled = isReady,
-                    modifier = Modifier.weight(1f).height(gridRowHeight),
-                    shape = gridShape,
-                    contentPadding = gridContentPadding,
-                ) {
-                    Text("Identify")
-                }
                 Button(
                     onClick = {
                         viewModel.getDeviceStatus(connId)
@@ -182,6 +175,90 @@ fun ConnectedScreen(
                     Text("Stop DAQ")
                 }
             }
+            Spacer(modifier = Modifier.height(gridGap))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(gridGap),
+            ) {
+                Button(
+                    onClick = { viewModel.identify(connId) },
+                    enabled = isReady,
+                    modifier = Modifier.weight(1f).height(gridRowHeight),
+                    shape = gridShape,
+                    contentPadding = gridContentPadding,
+                ) {
+                    Text("Identify")
+                }
+                val fingerLabel = when (ring.fingerDetectionOn) {
+                    true -> "Finger Det: ON"
+                    false -> "Finger Det: OFF"
+                    null -> "Finger Det: ?"
+                }
+                Button(
+                    onClick = { viewModel.toggleFingerDetection(connId) },
+                    enabled = isReady,
+                    modifier = Modifier.weight(1f).height(gridRowHeight),
+                    shape = gridShape,
+                    contentPadding = gridContentPadding,
+                ) {
+                    Text(fingerLabel)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // ---- Download ----
+            val canStartDownload = isReady &&
+                (ring.deviceInfo?.firmwareTier ?: FirmwareTier.TIER_0) >= FirmwareTier.TIER_1
+            val isDownloading = ring.isDownloading
+
+            SectionHeader("Download")
+            if (isDownloading) {
+                Spacer(modifier = Modifier.height(4.dp))
+                if (ring.downloadTotal > 0) {
+                    @Suppress("DEPRECATION")
+                    LinearProgressIndicator(
+                        progress = ring.downloadProgress.toFloat() / ring.downloadTotal,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    val transportLabel = if (ring.downloadTransport.isNotEmpty()) "  (${ring.downloadTransport})" else ""
+                    Text(
+                        "${ring.downloadProgress} / ${ring.downloadTotal} frames$transportLabel",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                } else {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    Text("Starting download...", style = MaterialTheme.typography.bodySmall)
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+            if (ring.totalFramesDownloaded > 0 && !isDownloading) {
+                InfoRow("Last Download", "${ring.totalFramesDownloaded} frames")
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(gridGap),
+            ) {
+                Button(
+                    onClick = { viewModel.startDownload(connId) },
+                    enabled = canStartDownload && !isDownloading,
+                    modifier = Modifier.weight(1f).height(gridRowHeight),
+                    shape = gridShape,
+                    contentPadding = gridContentPadding,
+                ) {
+                    Text("Start Download")
+                }
+                Button(
+                    onClick = { viewModel.stopDownload(connId) },
+                    enabled = isDownloading,
+                    modifier = Modifier.weight(1f).height(gridRowHeight),
+                    shape = gridShape,
+                    contentPadding = gridContentPadding,
+                ) {
+                    Text("Stop Download")
+                }
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -205,6 +282,7 @@ fun ConnectedScreen(
     if (showDaqConfigDialog && ring.daqConfig != null) {
         DaqConfigDialog(
             config = ring.daqConfig!!,
+            fingerDetectionOn = ring.fingerDetectionOn,
             onDismiss = { showDaqConfigDialog = false },
         )
     }
@@ -262,7 +340,7 @@ private fun DeviceStatusDialog(
 }
 
 @Composable
-private fun DaqConfigDialog(config: DaqConfigData, onDismiss: () -> Unit) {
+private fun DaqConfigDialog(config: DaqConfigData, fingerDetectionOn: Boolean?, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("DAQ Configuration") },
@@ -307,12 +385,54 @@ private fun DaqConfigDialog(config: DaqConfigData, onDismiss: () -> Unit) {
                 Text("Sleep Thresh Config: ${config.sleepThreshConfig}", style = small)
                 Text("Reset Ring Cfg: ${config.resetRingCfg}", style = small)
                 Text("Daily DAQ Mode Cfg: ${config.dailyDaqModeCfg}", style = small)
+                Spacer(modifier = Modifier.height(8.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(4.dp))
+                val fingerStr = when (fingerDetectionOn) {
+                    true -> "ON"
+                    false -> "OFF"
+                    null -> "Unknown"
+                }
+                Text("Finger Detection: $fingerStr", style = small)
             }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) { Text("Dismiss") }
         },
     )
+}
+
+@Composable
+private fun CommandSectionHeader(title: String, commandStatus: String?) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        if (commandStatus != null) {
+            val statusColor = when {
+                commandStatus.contains("Success") -> MaterialTheme.colorScheme.primary
+                commandStatus.contains("Timeout") -> MaterialTheme.colorScheme.tertiary
+                else -> MaterialTheme.colorScheme.error
+            }
+            Text(
+                commandStatus,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = statusColor,
+            )
+        }
+    }
+    HorizontalDivider()
+    Spacer(modifier = Modifier.height(4.dp))
 }
 
 @Composable
