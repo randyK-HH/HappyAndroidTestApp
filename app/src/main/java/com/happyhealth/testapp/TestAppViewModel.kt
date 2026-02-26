@@ -287,6 +287,9 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
             is HpyEvent.DownloadComplete -> {
                 addLog(event.connId, "DownloadComplete: ${event.totalFrames} frames")
             }
+            is HpyEvent.MemfaultComplete -> {
+                addLog(event.connId, "Memfault drain complete: ${event.chunksDownloaded} new chunks")
+            }
             is HpyEvent.DeviceDiscovered -> { /* Handled via discoveredDevices StateFlow */ }
             else -> { /* Future events */ }
         }
