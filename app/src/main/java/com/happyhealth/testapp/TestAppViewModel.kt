@@ -19,6 +19,9 @@ import com.happyhealth.bleplatform.internal.shim.AndroidTimeSource
 import com.happyhealth.testapp.data.FwImageInfo
 import com.happyhealth.testapp.data.FwImageReader
 import com.happyhealth.testapp.data.FwImageStatus
+import com.happyhealth.testapp.data.MemfaultClient
+import com.happyhealth.testapp.data.MemfaultRelease
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -218,6 +221,89 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         api.cancelFwUpdate(connId)
         updateRing(connId) {
             it.copy(isFwUpdating = false, fwUpdateState = "Aborted/Recovering...", fwBlocksSent = 0, fwBlocksTotal = 0)
+        }
+    }
+
+    // ---- Memfault FW Images ----
+
+    private val memfaultClient = MemfaultClient()
+    private val _memfaultReleases = MutableStateFlow<List<MemfaultRelease>>(emptyList())
+    val memfaultReleases: StateFlow<List<MemfaultRelease>> = _memfaultReleases
+    private val _memfaultLoading = MutableStateFlow(false)
+    val memfaultLoading: StateFlow<Boolean> = _memfaultLoading
+    private val _memfaultError = MutableStateFlow<String?>(null)
+    val memfaultError: StateFlow<String?> = _memfaultError
+    private val _memfaultHasMore = MutableStateFlow(true)
+    val memfaultHasMore: StateFlow<Boolean> = _memfaultHasMore
+    private var memfaultNextPage = 1
+    private val _memfaultDownloading = MutableStateFlow(false)
+    val memfaultDownloading: StateFlow<Boolean> = _memfaultDownloading
+    private val _memfaultDownloadVersion = MutableStateFlow<String?>(null)
+    val memfaultDownloadVersion: StateFlow<String?> = _memfaultDownloadVersion
+
+    /** Reset state and fetch page 1. Called when Memfault dialog opens. */
+    fun fetchMemfaultReleases() {
+        _memfaultReleases.value = emptyList()
+        _memfaultError.value = null
+        _memfaultHasMore.value = true
+        memfaultNextPage = 1
+        loadMoreMemfaultReleases()
+    }
+
+    /** Load next page (pagination). No-op if already loading or no more pages. */
+    fun loadMoreMemfaultReleases() {
+        if (_memfaultLoading.value || !_memfaultHasMore.value) return
+        _memfaultLoading.value = true
+        _memfaultError.value = null
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val response = memfaultClient.fetchReleases(memfaultNextPage)
+                _memfaultReleases.value = _memfaultReleases.value + response.releases
+                _memfaultHasMore.value = memfaultNextPage < response.paging.pageCount
+                memfaultNextPage++
+            } catch (e: Exception) {
+                _memfaultError.value = e.message ?: "Failed to fetch releases"
+            } finally {
+                _memfaultLoading.value = false
+            }
+        }
+    }
+
+    /** Download a version's artifact, validate, and set fwImageBytes/fwImageInfo. */
+    fun downloadMemfaultRelease(version: String, connId: ConnectionId) {
+        _memfaultDownloading.value = true
+        _memfaultDownloadVersion.value = version
+        _memfaultError.value = null
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                addLog(connId, "Memfault: fetching artifact URL for $version...")
+                val artifactUrl = memfaultClient.fetchArtifactUrl(version)
+
+                addLog(connId, "Memfault: downloading $version...")
+                val bytes = memfaultClient.downloadArtifact(artifactUrl)
+
+                addLog(connId, "Memfault: validating $version (${bytes.size} bytes)...")
+                val reader = FwImageReader()
+                val status = reader.readAndValidateBytes(bytes, "$version.img")
+                if (status != FwImageStatus.OK) {
+                    _memfaultError.value = "Image validation failed: $status"
+                    addLog(connId, "Memfault: validation failed for $version: $status")
+                    return@launch
+                }
+
+                fwImageBytes = reader.imageBytes
+                _fwImageInfo.value = reader.imageInfo
+                addLog(connId, "Memfault FW image: ${reader.imageInfo?.fileName}, " +
+                    "version=${reader.imageInfo?.version}, ${reader.imageInfo?.fileSize} bytes")
+            } catch (e: Exception) {
+                _memfaultError.value = e.message ?: "Download failed"
+                addLog(connId, "Memfault: error downloading $version: ${e.message}")
+            } finally {
+                _memfaultDownloading.value = false
+                _memfaultDownloadVersion.value = null
+            }
         }
     }
 

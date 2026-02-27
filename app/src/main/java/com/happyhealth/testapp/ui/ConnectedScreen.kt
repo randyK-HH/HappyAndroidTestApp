@@ -765,6 +765,7 @@ private fun FwUpdateSection(
     }
 
     var showPickerDialog by remember { mutableStateOf(false) }
+    var showMemfaultDialog by remember { mutableStateOf(false) }
 
     val fwImageLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
@@ -778,25 +779,66 @@ private fun FwUpdateSection(
         showPickerDialog = false
     }
 
+    // Source choice dialog
     if (showPickerDialog) {
         AlertDialog(
             onDismissRequest = { showPickerDialog = false },
             title = { Text("Select FW Image") },
             text = {
-                Text("Browse for a .img firmware file. The image will be validated before use.",
+                Text("Choose a firmware image source.",
                     style = MaterialTheme.typography.bodyMedium)
             },
             confirmButton = {
-                TextButton(onClick = { fwImageLauncher.launch("*/*") }) {
-                    Text("Browse")
+                TextButton(onClick = {
+                    showPickerDialog = false
+                    showMemfaultDialog = true
+                    viewModel.fetchMemfaultReleases()
+                }) {
+                    Text("Memfault")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showPickerDialog = false }) {
-                    Text("Cancel")
+                Row {
+                    TextButton(onClick = { showPickerDialog = false }) {
+                        Text("Cancel")
+                    }
+                    TextButton(onClick = { fwImageLauncher.launch("*/*") }) {
+                        Text("Browse Files")
+                    }
                 }
             },
         )
+    }
+
+    // Memfault releases dialog
+    if (showMemfaultDialog) {
+        val releases by viewModel.memfaultReleases.collectAsState()
+        val memfaultLoading by viewModel.memfaultLoading.collectAsState()
+        val memfaultHasMore by viewModel.memfaultHasMore.collectAsState()
+        val memfaultError by viewModel.memfaultError.collectAsState()
+        val memfaultDownloading by viewModel.memfaultDownloading.collectAsState()
+        val memfaultDownloadVersion by viewModel.memfaultDownloadVersion.collectAsState()
+
+        MemfaultReleasesDialog(
+            releases = releases,
+            isLoading = memfaultLoading,
+            hasMore = memfaultHasMore,
+            error = memfaultError,
+            isDownloading = memfaultDownloading,
+            downloadingVersion = memfaultDownloadVersion,
+            onLoadMore = { viewModel.loadMoreMemfaultReleases() },
+            onSelectRelease = { release ->
+                viewModel.downloadMemfaultRelease(release.version, connId)
+            },
+            onDismiss = { showMemfaultDialog = false },
+        )
+
+        // Auto-dismiss on successful download
+        LaunchedEffect(fwImage, memfaultDownloading) {
+            if (fwImage != null && !memfaultDownloading) {
+                showMemfaultDialog = false
+            }
+        }
     }
 
     val clearAction: (() -> Unit)? = if (fwImage != null && !isFwUpdating) {

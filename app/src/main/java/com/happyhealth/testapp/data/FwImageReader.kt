@@ -77,6 +77,29 @@ class FwImageReader {
             return FwImageStatus.READ_ERROR
         }
 
+        return validateBytes(bytes, fileName)
+    }
+
+    fun readAndValidateBytes(bytes: ByteArray, fileName: String): FwImageStatus {
+        Log.d(TAG, "Bytes: $fileName (${bytes.size} bytes)")
+
+        val ext = fileName.substringAfterLast('.')
+        if (ext != "img") {
+            Log.e(TAG, "Bad extension: $ext")
+            return FwImageStatus.BAD_EXTENSION
+        }
+
+        if (bytes.size > MAX_FW_IMAGE_SIZE) {
+            Log.e(TAG, "File too large: ${bytes.size} > $MAX_FW_IMAGE_SIZE")
+            return FwImageStatus.FILE_TOO_LARGE
+        }
+
+        return validateBytes(bytes, fileName)
+    }
+
+    private fun validateBytes(bytes: ByteArray, fileName: String): FwImageStatus {
+        val fileSize = bytes.size.toLong()
+
         // Validate signature: 0x70, 0x61
         if (bytes.size < SUOTA_HEADER_SIZE ||
             bytes[0].toUByte().toUInt() != 0x70u ||
