@@ -29,7 +29,53 @@ data class MemfaultReleasesResponse(
 class MemfaultClient {
     companion object {
         const val BASE_URL = "https://memfault.happy.dev"
+        const val CHUNKS_URL = "https://chunks.memfault.com/api/v0/chunks"
         const val PROJECT_KEY = "2xkNhje7HWN6cPIH2tBBwnwQB6paEsua"
+    }
+
+    /**
+     * Upload Memfault debug chunks via multipart/mixed POST.
+     * Matches the iOS MemfaultChunkDirectoryUploadOperation format.
+     * Returns the HTTP status code. Success = 202 (Accepted).
+     * Call from Dispatchers.IO.
+     */
+    fun uploadChunks(deviceSerial: String, chunks: List<ByteArray>): Int {
+        val totalBytes = chunks.sumOf { it.size }
+        Log.d(TAG, "Uploading ${chunks.size} chunks ($totalBytes bytes) for $deviceSerial")
+
+        val boundary = "mflt-chunk-boundary-${System.currentTimeMillis()}"
+        val url = URL("$CHUNKS_URL/$deviceSerial")
+
+        val body = ByteArrayOutputStream()
+        for (chunk in chunks) {
+            body.write("--$boundary\r\n".toByteArray())
+            body.write("Content-Type: application/octet-stream\r\n".toByteArray())
+            body.write("Content-Length: ${chunk.size}\r\n".toByteArray())
+            body.write("\r\n".toByteArray())
+            body.write(chunk)
+            body.write("\r\n".toByteArray())
+        }
+        body.write("--$boundary--\r\n".toByteArray())
+        val bodyBytes = body.toByteArray()
+
+        val conn = (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            setRequestProperty("Memfault-Project-Key", PROJECT_KEY)
+            setRequestProperty("Content-Type", "multipart/mixed; boundary=\"$boundary\"")
+            setRequestProperty("Content-Length", bodyBytes.size.toString())
+            doOutput = true
+            connectTimeout = 15_000
+            readTimeout = 30_000
+        }
+
+        try {
+            conn.outputStream.use { it.write(bodyBytes) }
+            val code = conn.responseCode
+            Log.d(TAG, "Chunk upload response: HTTP $code")
+            return code
+        } finally {
+            conn.disconnect()
+        }
     }
 
     /** Fetch one page of releases. Call from Dispatchers.IO. */

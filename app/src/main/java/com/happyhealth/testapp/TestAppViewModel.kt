@@ -540,9 +540,34 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
             }
             is HpyEvent.MemfaultComplete -> {
                 addLog(event.connId, "Memfault drain complete: ${event.chunksDownloaded} new chunks")
+                val ring = _connectedRings.value[event.connId.value]
+                val serial = ring?.deviceInfo?.serialNumber
+                if (serial != null) {
+                    uploadMemfaultChunks(event.connId, serial)
+                }
             }
             is HpyEvent.DeviceDiscovered -> { /* Handled via discoveredDevices StateFlow */ }
             else -> { /* Future events */ }
+        }
+    }
+
+    private fun uploadMemfaultChunks(connId: ConnectionId, serial: String) {
+        val chunks = api.getMemfaultChunks(connId)
+        if (chunks.isEmpty()) return
+        val totalBytes = chunks.sumOf { it.size }
+        addLog(connId, "Memfault: uploading ${chunks.size} chunks ($totalBytes bytes)...")
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val code = memfaultClient.uploadChunks(serial, chunks)
+                if (code == 202) {
+                    api.markMemfaultChunksUploaded(connId)
+                    addLog(connId, "Memfault: upload complete (HTTP 202)")
+                } else {
+                    addLog(connId, "Memfault: upload failed (HTTP $code), chunks retained")
+                }
+            } catch (e: Exception) {
+                addLog(connId, "Memfault: upload failed: ${e.message}")
+            }
         }
     }
 
