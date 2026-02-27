@@ -51,6 +51,8 @@ data class ConnectedRingInfo(
     val fwUploadDoneMs: Long = 0L,
     val isReconnecting: Boolean = false,
     val reconnectRetryCount: Int = 0,
+    val ringSize: Int = 0,
+    val ringColor: Int = 0,
 )
 
 data class LogEntry(
@@ -116,6 +118,8 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                 name = device.name,
                 address = device.address,
                 state = HpyConnectionState.CONNECTING,
+                ringSize = device.ringSize,
+                ringColor = device.ringColor,
             ))
         }
     }

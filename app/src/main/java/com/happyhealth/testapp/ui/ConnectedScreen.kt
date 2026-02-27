@@ -160,6 +160,17 @@ fun ConnectedScreen(
                 InfoRow("Model", info.modelNumber)
                 InfoRow("Firmware Tier", info.firmwareTier.name)
                 InfoRow("L2CAP Download", if (info.supportsL2capDownload) "Supported" else "Not Available")
+                if (ring.ringSize > 0) {
+                    InfoRow("Ring Size", ring.ringSize.toString())
+                }
+                val colorName = when (ring.ringColor) {
+                    1 -> "White"
+                    2 -> "Black"
+                    3 -> "Clay"
+                    0 -> "Unknown"
+                    else -> "Unknown(${ring.ringColor})"
+                }
+                InfoRow("Ring Color", colorName)
                 Spacer(modifier = Modifier.height(12.dp))
             }
 
