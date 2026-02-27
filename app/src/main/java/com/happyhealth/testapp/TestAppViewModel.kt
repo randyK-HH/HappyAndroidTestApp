@@ -239,6 +239,56 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    // ---- Event Log Files ----
+
+    fun saveEventLog(connId: ConnectionId): String? {
+        val logs = _connectionLogs.value[connId.value] ?: return null
+        if (logs.isEmpty()) return null
+
+        val baseDir = getApplication<Application>().getExternalFilesDir(null) ?: return null
+        val folder = java.io.File(baseDir, "BLE_EVENT_LOGS")
+        if (!folder.exists()) folder.mkdirs()
+
+        val timeFormat = java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US)
+        val fileTimestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US)
+            .format(java.util.Date())
+        val fileName = "event_log_${fileTimestamp}.txt"
+        val file = java.io.File(folder, fileName)
+
+        file.bufferedWriter().use { writer ->
+            for (entry in logs) {
+                val time = timeFormat.format(java.util.Date(entry.timestamp))
+                writer.write("$time  ${entry.message}")
+                writer.newLine()
+            }
+        }
+
+        addLog(connId, "Event log saved: $fileName (${logs.size} entries)")
+        return file.absolutePath
+    }
+
+    fun listEventLogFiles(): List<java.io.File> {
+        val baseDir = getApplication<Application>().getExternalFilesDir(null) ?: return emptyList()
+        val folder = java.io.File(baseDir, "BLE_EVENT_LOGS")
+        if (!folder.isDirectory) return emptyList()
+        return folder.listFiles { f -> f.extension == "txt" }
+            ?.sortedByDescending { it.lastModified() }
+            ?: emptyList()
+    }
+
+    fun shareEventLogFile(path: String): Intent? {
+        val file = java.io.File(path)
+        if (!file.exists()) return null
+
+        val context = getApplication<Application>()
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        return Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+
     private fun handleEvent(event: HpyEvent) {
         when (event) {
             is HpyEvent.StateChanged -> {

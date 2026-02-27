@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <external-files-path name="hpy2_data" path="BLE_HPY2_DATA/" />
+    <external-files-path name="event_logs" path="BLE_EVENT_LOGS/" />
 </paths>

@@ -11,6 +11,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -566,11 +567,12 @@ private fun DownloadSectionHeader(title: String, downloadState: String?, onShare
                 color = stateColor,
             )
         } else if (onShare != null) {
-            TextButton(
-                onClick = onShare,
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-            ) {
-                Text("SHARE", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+            IconButton(onClick = onShare) {
+                Icon(
+                    Icons.Default.Share,
+                    contentDescription = "Share / Manage Files",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
             }
         }
     }
