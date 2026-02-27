@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -580,11 +581,11 @@ private fun DownloadSectionHeader(title: String, downloadState: String?, onShare
 @Composable
 private fun ShareHpy2Dialog(viewModel: TestAppViewModel, onDismiss: () -> Unit) {
     val context = LocalContext.current
-    val files = remember { viewModel.listHpy2Files() }
+    var files by remember { mutableStateOf(viewModel.listHpy2Files()) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Share HPY2 File") },
+        title = { Text("Share / Manage HPY2 Files") },
         text = {
             if (files.isEmpty()) {
                 Text("No .hpy2 files found.", style = MaterialTheme.typography.bodyMedium)
@@ -595,27 +596,44 @@ private fun ShareHpy2Dialog(viewModel: TestAppViewModel, onDismiss: () -> Unit) 
                     files.forEach { file ->
                         val sizeKb = file.length() / 1024
                         val frames = file.length() / 4096
-                        TextButton(
-                            onClick = {
-                                val intent = viewModel.shareHpy2File(file.absolutePath)
-                                if (intent != null) {
-                                    context.startActivity(Intent.createChooser(intent, "Share HPY2 file"))
-                                }
-                                onDismiss()
-                            },
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Column(modifier = Modifier.fillMaxWidth()) {
-                                Text(
-                                    file.name,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Medium,
-                                )
-                                Text(
-                                    "${frames} frames (${sizeKb} KB)",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            TextButton(
+                                onClick = {
+                                    val intent = viewModel.shareHpy2File(file.absolutePath)
+                                    if (intent != null) {
+                                        context.startActivity(Intent.createChooser(intent, "Share HPY2 file"))
+                                    }
+                                    onDismiss()
+                                },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    Text(
+                                        file.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Medium,
+                                    )
+                                    Text(
+                                        "${frames} frames (${sizeKb} KB)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                            IconButton(
+                                onClick = {
+                                    file.delete()
+                                    files = viewModel.listHpy2Files()
+                                },
+                            ) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Delete",
+                                    tint = MaterialTheme.colorScheme.error,
                                 )
                             }
                         }
