@@ -1,5 +1,6 @@
 package com.happyhealth.testapp.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -9,8 +10,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.happyhealth.testapp.R
 import com.happyhealth.bleplatform.api.ConnectionId
 import com.happyhealth.bleplatform.api.HpyConnectionState
 import com.happyhealth.testapp.ConnectedRingInfo
@@ -29,20 +36,67 @@ fun ScanScreen(
     val connectedAddresses = connectedRings.values.map { it.address }.toSet()
     val unconnectedDevices = discovered.filter { it.address !in connectedAddresses }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        // Scan toggle button
-        Button(
-            onClick = { viewModel.toggleScan() },
-            modifier = Modifier.fillMaxWidth().height(38.dp),
-            shape = RoundedCornerShape(4.dp),
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-            colors = if (isScanning) {
-                ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-            } else {
-                ButtonDefaults.buttonColors()
-            },
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Watermark background — logo + text centered
+        val watermarkColor = androidx.compose.ui.graphics.Color.Gray
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Bottom,
         ) {
-            Text(if (isScanning) "Stop Scanning" else "Start Scanning")
+            Image(
+                painter = painterResource(R.drawable.happy_watermark),
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxWidth(0.70f)
+                    .alpha(0.15f),
+                contentScale = ContentScale.Fit,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "Happy Health",
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                color = watermarkColor.copy(alpha = 0.25f),
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                "Android Platform Test App",
+                fontSize = 20.sp,
+                color = watermarkColor.copy(alpha = 0.25f),
+                textAlign = TextAlign.Center,
+            )
+            Spacer(modifier = Modifier.height(48.dp))
+        }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        // Scan toggle + Disconnect All buttons
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Button(
+                onClick = { viewModel.toggleScan() },
+                modifier = Modifier.weight(1f).height(38.dp),
+                shape = RoundedCornerShape(4.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                colors = if (isScanning) {
+                    ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                } else {
+                    ButtonDefaults.buttonColors()
+                },
+            ) {
+                Text(if (isScanning) "Stop Scanning" else "Start Scanning")
+            }
+            Button(
+                onClick = { viewModel.disconnectAll() },
+                enabled = connectedRings.isNotEmpty(),
+                modifier = Modifier.weight(1f).height(38.dp),
+                shape = RoundedCornerShape(4.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+            ) {
+                Text("Disconnect All")
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -59,7 +113,10 @@ fun ScanScreen(
                     )
                 }
                 items(connectedRings.values.toList(), key = { it.connId.value }) { ring ->
-                    ConnectedRingCard(ring = ring, onClick = { onRingSelected(ring.connId) })
+                    ConnectedRingCard(ring = ring, onClick = {
+                        if (isScanning) viewModel.toggleScan()
+                        onRingSelected(ring.connId)
+                    })
                 }
                 item { Spacer(modifier = Modifier.height(16.dp)) }
             }
@@ -127,6 +184,7 @@ fun ScanScreen(
             }
         }
     }
+    } // Box
 }
 
 @Composable

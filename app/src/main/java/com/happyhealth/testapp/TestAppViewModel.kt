@@ -109,7 +109,6 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun connect(device: ScannedDeviceInfo) {
-        api.scanStop()
         val connId = api.connect(device.deviceHandle)
         if (connId != ConnectionId.INVALID) {
             _connectedRings.value = _connectedRings.value + (connId.value to ConnectedRingInfo(
@@ -125,6 +124,13 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         frameWriters.remove(connId.value)?.destroy()
         api.disconnect(connId)
         _connectedRings.value = _connectedRings.value - connId.value
+    }
+
+    fun disconnectAll() {
+        val rings = _connectedRings.value.keys.toList()
+        for (id in rings) {
+            disconnect(ConnectionId(id))
+        }
     }
 
     fun identify(connId: ConnectionId) {
