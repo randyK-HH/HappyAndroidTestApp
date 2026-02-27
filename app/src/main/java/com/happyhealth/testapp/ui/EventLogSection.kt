@@ -30,8 +30,10 @@ fun EventLogSection(
     val logs = connectionLogs[connId.value] ?: emptyList()
     val listState = rememberLazyListState()
 
-    // Auto-scroll to bottom when new entries arrive
-    LaunchedEffect(logs.size) {
+    // Auto-scroll to bottom when new entries arrive (keyed on last entry id,
+    // not list size, because takeLast() caps the list at a fixed size)
+    val lastId = logs.lastOrNull()?.id
+    LaunchedEffect(lastId) {
         if (logs.isNotEmpty()) {
             listState.animateScrollToItem(logs.size - 1)
         }
@@ -85,7 +87,8 @@ fun FullScreenEventLog(
     val logs = connectionLogs[connId.value] ?: emptyList()
     val listState = rememberLazyListState()
 
-    LaunchedEffect(logs.size) {
+    val lastId = logs.lastOrNull()?.id
+    LaunchedEffect(lastId) {
         if (logs.isNotEmpty()) {
             listState.animateScrollToItem(logs.size - 1)
         }

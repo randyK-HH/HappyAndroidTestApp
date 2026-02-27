@@ -1,5 +1,7 @@
 package com.happyhealth.testapp.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -12,10 +14,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import com.happyhealth.bleplatform.api.ConnectionId
 import com.happyhealth.bleplatform.api.HpyConnectionState
 import com.happyhealth.bleplatform.internal.command.ResponseParser
@@ -85,15 +89,62 @@ fun ConnectedScreen(
                 HpyConnectionState.WAITING -> MaterialTheme.colorScheme.tertiary
                 HpyConnectionState.HANDSHAKING, HpyConnectionState.CONNECTING ->
                     MaterialTheme.colorScheme.tertiary
+                HpyConnectionState.RECONNECTING -> MaterialTheme.colorScheme.error
                 HpyConnectionState.DISCONNECTED -> MaterialTheme.colorScheme.error
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
             }
+            val stateText = when {
+                ring.state == HpyConnectionState.RECONNECTING && ring.reconnectRetryCount > 0 ->
+                    "State: RECONNECTING (${ring.reconnectRetryCount}/64)"
+                ring.state == HpyConnectionState.FW_UPDATE_REBOOTING && ring.reconnectRetryCount > 0 ->
+                    "State: FW_UPDATE_REBOOTING (${ring.reconnectRetryCount}/64)"
+                else -> "State: ${ring.state}"
+            }
             Text(
-                "State: ${ring.state}",
+                stateText,
                 style = MaterialTheme.typography.titleMedium,
                 color = stateColor,
                 fontWeight = FontWeight.Bold,
             )
+
+            // ---- Reconnection Banner ----
+            if (ring.isReconnecting) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                    ),
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        val bannerText = if (ring.state == HpyConnectionState.FW_UPDATE_REBOOTING) {
+                            "Reconnecting after FW update..."
+                        } else {
+                            "Connection lost. Reconnecting..."
+                        }
+                        Text(
+                            bannerText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Attempt ${ring.reconnectRetryCount} of 64",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        @Suppress("DEPRECATION")
+                        LinearProgressIndicator(
+                            progress = ring.reconnectRetryCount.toFloat() / 64f,
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.error,
+                            trackColor = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.2f),
+                        )
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -221,6 +272,20 @@ fun ConnectedScreen(
                     Text(fingerLabel)
                 }
             }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // ---- FW Update ----
+            FwUpdateSection(
+                connId = connId,
+                ring = ring,
+                viewModel = viewModel,
+                isReady = isReady,
+                gridShape = gridShape,
+                gridRowHeight = gridRowHeight,
+                gridGap = gridGap,
+                gridContentPadding = gridContentPadding,
+            )
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -565,6 +630,47 @@ private fun ShareHpy2Dialog(viewModel: TestAppViewModel, onDismiss: () -> Unit) 
 }
 
 @Composable
+private fun FwUpdateSectionHeader(title: String, fwUpdateState: String?, onClear: (() -> Unit)?) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.align(Alignment.Bottom),
+        )
+        if (fwUpdateState != null) {
+            val stateColor = when {
+                fwUpdateState == "Uploading" -> MaterialTheme.colorScheme.primary
+                fwUpdateState == "Finalizing" -> MaterialTheme.colorScheme.tertiary
+                fwUpdateState?.contains("Abort") == true -> MaterialTheme.colorScheme.error
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            }
+            Text(
+                fwUpdateState,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = stateColor,
+            )
+        } else if (onClear != null) {
+            TextButton(
+                onClick = onClear,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+            ) {
+                Text("CLEAR", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+    HorizontalDivider()
+    Spacer(modifier = Modifier.height(4.dp))
+}
+
+@Composable
 private fun SectionHeader(title: String) {
     Text(
         title,
@@ -587,5 +693,165 @@ private fun InfoRow(label: String, value: String) {
     ) {
         Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+private fun FwUpdateSection(
+    connId: ConnectionId,
+    ring: com.happyhealth.testapp.ConnectedRingInfo,
+    viewModel: TestAppViewModel,
+    isReady: Boolean,
+    gridShape: RoundedCornerShape,
+    gridRowHeight: androidx.compose.ui.unit.Dp,
+    gridGap: androidx.compose.ui.unit.Dp,
+    gridContentPadding: PaddingValues,
+) {
+    val context = LocalContext.current
+    val fwImage by viewModel.fwImageInfo.collectAsState()
+    val isFwUpdating = ring.isFwUpdating ||
+        ring.state == HpyConnectionState.FW_UPDATING ||
+        ring.state == HpyConnectionState.FW_UPDATE_REBOOTING
+
+    // Elapsed-time counter for FW update
+    var fwElapsedSeconds by remember { mutableIntStateOf(0) }
+    var fwUploadSeconds by remember { mutableIntStateOf(0) }
+    LaunchedEffect(isFwUpdating) {
+        if (isFwUpdating) {
+            fwElapsedSeconds = 0
+            fwUploadSeconds = 0
+            while (true) {
+                delay(1000L)
+                fwElapsedSeconds++
+            }
+        }
+    }
+    // Capture upload time when image transfer completes
+    LaunchedEffect(ring.fwUpdateState) {
+        if (ring.fwUpdateState != null && ring.fwUpdateState != "Uploading" && fwUploadSeconds == 0 && fwElapsedSeconds > 0) {
+            fwUploadSeconds = fwElapsedSeconds
+        }
+    }
+
+    var showPickerDialog by remember { mutableStateOf(false) }
+
+    val fwImageLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            val error = viewModel.loadFwImage(uri)
+            if (error != null) {
+                Toast.makeText(context, error, Toast.LENGTH_LONG).show()
+            }
+        }
+        showPickerDialog = false
+    }
+
+    if (showPickerDialog) {
+        AlertDialog(
+            onDismissRequest = { showPickerDialog = false },
+            title = { Text("Select FW Image") },
+            text = {
+                Text("Browse for a .img firmware file. The image will be validated before use.",
+                    style = MaterialTheme.typography.bodyMedium)
+            },
+            confirmButton = {
+                TextButton(onClick = { fwImageLauncher.launch("*/*") }) {
+                    Text("Browse")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPickerDialog = false }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
+    val clearAction: (() -> Unit)? = if (fwImage != null && !isFwUpdating) {
+        { viewModel.clearFwImage() }
+    } else null
+    FwUpdateSectionHeader("FW Update", ring.fwUpdateState, clearAction)
+
+    if (fwImage != null) {
+        InfoRow("Image", fwImage!!.fileName)
+        InfoRow("Size", "${fwImage!!.fileSize / 1024} KB")
+    }
+
+    if (isFwUpdating && ring.fwBlocksTotal > 0) {
+        Spacer(modifier = Modifier.height(4.dp))
+        @Suppress("DEPRECATION")
+        LinearProgressIndicator(
+            progress = ring.fwBlocksSent.toFloat() / ring.fwBlocksTotal,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                "${ring.fwBlocksSent} / ${ring.fwBlocksTotal} blocks (${ring.fwUpdateState ?: ""})",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            val timerText = if (fwUploadSeconds > 0) {
+                "(${fwUploadSeconds}s) ${fwElapsedSeconds}s"
+            } else {
+                "${fwElapsedSeconds}s"
+            }
+            Text(
+                timerText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+    } else if (ring.state == HpyConnectionState.FW_UPDATE_REBOOTING) {
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            "Ring rebooting...",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.tertiary,
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+    }
+
+    Spacer(modifier = Modifier.height(4.dp))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(gridGap),
+    ) {
+        Button(
+            onClick = { showPickerDialog = true },
+            enabled = !isFwUpdating,
+            modifier = Modifier.weight(1f).height(gridRowHeight),
+            shape = gridShape,
+            contentPadding = gridContentPadding,
+        ) {
+            Text("Select Image")
+        }
+        if (isFwUpdating) {
+            Button(
+                onClick = { viewModel.cancelFwUpdate(connId) },
+                enabled = ring.state == HpyConnectionState.FW_UPDATING,
+                modifier = Modifier.weight(1f).height(gridRowHeight),
+                shape = gridShape,
+                contentPadding = gridContentPadding,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                ),
+            ) {
+                Text("Cancel FW")
+            }
+        } else {
+            Button(
+                onClick = { viewModel.startFwUpdate(connId) },
+                enabled = fwImage != null && isReady,
+                modifier = Modifier.weight(1f).height(gridRowHeight),
+                shape = gridShape,
+                contentPadding = gridContentPadding,
+            ) {
+                Text("Update")
+            }
+        }
     }
 }

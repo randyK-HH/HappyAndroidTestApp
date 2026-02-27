@@ -3,6 +3,7 @@ package com.happyhealth.testapp
 import android.app.Application
 import android.content.Intent
 import android.bluetooth.BluetoothDevice
+import android.net.Uri
 import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -15,6 +16,9 @@ import com.happyhealth.bleplatform.internal.model.DaqConfigData
 import com.happyhealth.bleplatform.internal.model.ScannedDeviceInfo
 import com.happyhealth.bleplatform.internal.shim.AndroidBleShim
 import com.happyhealth.bleplatform.internal.shim.AndroidTimeSource
+import com.happyhealth.testapp.data.FwImageInfo
+import com.happyhealth.testapp.data.FwImageReader
+import com.happyhealth.testapp.data.FwImageStatus
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,6 +43,14 @@ data class ConnectedRingInfo(
     val batchStartMs: Long = 0L,
     val commandStatus: String? = null,
     val downloadState: String? = null,
+    val isFwUpdating: Boolean = false,
+    val fwUpdateState: String? = null,
+    val fwBlocksSent: Int = 0,
+    val fwBlocksTotal: Int = 0,
+    val fwStartMs: Long = 0L,
+    val fwUploadDoneMs: Long = 0L,
+    val isReconnecting: Boolean = false,
+    val reconnectRetryCount: Int = 0,
 )
 
 data class LogEntry(
@@ -167,6 +179,38 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    // ---- FW Update ----
+
+    private val _fwImageInfo = MutableStateFlow<FwImageInfo?>(null)
+    val fwImageInfo: StateFlow<FwImageInfo?> = _fwImageInfo
+    private var fwImageBytes: ByteArray? = null
+
+    fun loadFwImage(uri: Uri): String? {
+        val reader = FwImageReader()
+        val status = reader.readAndValidate(getApplication<Application>().contentResolver, uri)
+        if (status != FwImageStatus.OK) return "Image validation failed: $status"
+        fwImageBytes = reader.imageBytes
+        _fwImageInfo.value = reader.imageInfo
+        return null
+    }
+
+    fun clearFwImage() {
+        fwImageBytes = null
+        _fwImageInfo.value = null
+    }
+
+    fun startFwUpdate(connId: ConnectionId) {
+        val bytes = fwImageBytes ?: return
+        api.startFwUpdate(connId, bytes)
+    }
+
+    fun cancelFwUpdate(connId: ConnectionId) {
+        api.cancelFwUpdate(connId)
+        updateRing(connId) {
+            it.copy(isFwUpdating = false, fwUpdateState = "Aborted/Recovering...", fwBlocksSent = 0, fwBlocksTotal = 0)
+        }
+    }
+
     fun listHpy2Files(): List<java.io.File> {
         val baseDir = getApplication<Application>().getExternalFilesDir(null) ?: return emptyList()
         val folder = java.io.File(baseDir, "BLE_HPY2_DATA")
@@ -197,17 +241,32 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                     HpyConnectionState.WAITING -> "Waiting"
                     else -> null
                 }
+                val reconnecting = event.state == HpyConnectionState.RECONNECTING ||
+                    (event.state == HpyConnectionState.FW_UPDATE_REBOOTING && event.retryCount > 0)
                 updateRing(event.connId) {
                     it.copy(
                         state = event.state,
                         isDownloading = event.state == HpyConnectionState.DOWNLOADING ||
                             event.state == HpyConnectionState.WAITING,
+                        isFwUpdating = event.state == HpyConnectionState.FW_UPDATING ||
+                            event.state == HpyConnectionState.FW_UPDATE_REBOOTING,
                         batchStartMs = if (event.state == HpyConnectionState.DOWNLOADING)
                             System.currentTimeMillis() else it.batchStartMs,
                         downloadState = dlState,
+                        fwUpdateState = if (event.state == HpyConnectionState.READY) null else it.fwUpdateState,
+                        isReconnecting = reconnecting,
+                        reconnectRetryCount = event.retryCount,
                     )
                 }
-                addLog(event.connId, "State -> ${event.state}")
+                val retryStr = if (event.retryCount > 0) " (retry ${event.retryCount}/64)" else ""
+                addLog(event.connId, "State -> ${event.state}$retryStr")
+                // Auto-remove ring after reconnection failure
+                if (event.state == HpyConnectionState.DISCONNECTED) {
+                    viewModelScope.launch {
+                        delay(2000)
+                        _connectedRings.value = _connectedRings.value - event.connId.value
+                    }
+                }
             }
             is HpyEvent.DeviceInfo -> {
                 updateRing(event.connId) {
@@ -248,6 +307,12 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                 val status = if (event.code == HpyErrorCode.COMMAND_TIMEOUT) "Timeout" else "Error"
                 setCommandStatus(event.connId, status)
                 addLog(event.connId, "ERROR [${event.code}]: ${event.message}")
+                // Clear FW update UI on FW errors so "Finalizing" doesn't persist
+                if (event.code == HpyErrorCode.FW_TRANSFER_FAIL) {
+                    updateRing(event.connId) {
+                        it.copy(isFwUpdating = false, fwUpdateState = null, fwBlocksSent = 0, fwBlocksTotal = 0)
+                    }
+                }
             }
             is HpyEvent.Log -> {
                 addLog(event.connId, event.message)
@@ -284,8 +349,48 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
             is HpyEvent.DownloadFrame -> {
                 frameWriters[event.connId.value]?.writeFrame(event.frameData)
             }
+            is HpyEvent.DownloadInterrupted -> {
+                val writer = frameWriters[event.connId.value]
+                if (writer != null && event.framesToDiscard > 0) {
+                    writer.discardFrames(event.framesToDiscard)
+                    addLog(event.connId, "Download interrupted: discarding ${event.framesToDiscard} partial-batch frames")
+                }
+            }
             is HpyEvent.DownloadComplete -> {
                 addLog(event.connId, "DownloadComplete: ${event.totalFrames} frames")
+            }
+            is HpyEvent.FwUpdateProgress -> {
+                val fwState = when {
+                    event.bytesWritten < event.totalBytes -> "Uploading"
+                    else -> "Finalizing"
+                }
+                val now = System.currentTimeMillis()
+                updateRing(event.connId) {
+                    it.copy(
+                        isFwUpdating = true,
+                        fwUpdateState = fwState,
+                        fwBlocksSent = event.bytesWritten / 240,
+                        fwBlocksTotal = event.totalBytes / 240,
+                        fwStartMs = if (it.fwStartMs == 0L) now else it.fwStartMs,
+                        fwUploadDoneMs = if (fwState == "Finalizing" && it.fwUploadDoneMs == 0L) now else it.fwUploadDoneMs,
+                    )
+                }
+                if (event.bytesWritten % (240 * 25) == 0 || event.bytesWritten == event.totalBytes) {
+                    addLog(event.connId, "FW: ${event.bytesWritten / 240}/${event.totalBytes / 240} blocks")
+                }
+            }
+            is HpyEvent.FwUpdateComplete -> {
+                val ring = _connectedRings.value[event.connId.value]
+                val now = System.currentTimeMillis()
+                val uploadSec = if (ring != null && ring.fwStartMs > 0 && ring.fwUploadDoneMs > 0)
+                    (ring.fwUploadDoneMs - ring.fwStartMs) / 1000 else 0L
+                val totalSec = if (ring != null && ring.fwStartMs > 0)
+                    (now - ring.fwStartMs) / 1000 else 0L
+                updateRing(event.connId) {
+                    it.copy(isFwUpdating = false, fwUpdateState = null, fwBlocksSent = 0, fwBlocksTotal = 0,
+                        fwStartMs = 0L, fwUploadDoneMs = 0L)
+                }
+                addLog(event.connId, "FW update complete: ${event.newFwVersion} (upload: ${uploadSec}s, total: ${totalSec}s)")
             }
             is HpyEvent.MemfaultComplete -> {
                 addLog(event.connId, "Memfault drain complete: ${event.chunksDownloaded} new chunks")
@@ -324,13 +429,13 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         val entry = LogEntry(connId = connId, message = message)
 
         // Global log
-        _eventLog.value = (_eventLog.value + entry).takeLast(500)
+        _eventLog.value = (_eventLog.value + entry).takeLast(1000)
 
         // Per-connection log
         if (connId.value >= 0) {
             val logs = _connectionLogs.value.toMutableMap()
             val connLogs = (logs[connId.value] ?: emptyList()) + entry
-            logs[connId.value] = connLogs.takeLast(200)
+            logs[connId.value] = connLogs.takeLast(1000)
             _connectionLogs.value = logs
         }
     }

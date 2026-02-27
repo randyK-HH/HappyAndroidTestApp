@@ -4,16 +4,19 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.*
 import java.io.File
+import java.io.RandomAccessFile
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 private const val TAG = "FrameWriter"
 private const val FOLDER_NAME = "BLE_HPY2_DATA"
+private const val FRAME_SIZE = 4096L
 
 class FrameWriter(private val context: Context) {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
 
     private var outputFile: File? = null
     var totalFramesWritten: Int = 0
@@ -43,6 +46,23 @@ class FrameWriter(private val context: Context) {
         scope.launch {
             file.appendBytes(frameData)
             totalFramesWritten++
+        }
+    }
+
+    fun discardFrames(count: Int) {
+        if (count <= 0) return
+        val file = outputFile ?: return
+
+        scope.launch {
+            val bytesToRemove = count * FRAME_SIZE
+            val currentLength = file.length()
+            if (bytesToRemove <= currentLength) {
+                RandomAccessFile(file, "rw").use { raf ->
+                    raf.setLength(currentLength - bytesToRemove)
+                }
+                totalFramesWritten = maxOf(0, totalFramesWritten - count)
+                Log.d(TAG, "Discarded $count frames ($bytesToRemove bytes), now $totalFramesWritten frames")
+            }
         }
     }
 
