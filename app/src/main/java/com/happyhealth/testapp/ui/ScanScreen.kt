@@ -49,7 +49,7 @@ fun ScanScreen(
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxWidth(0.70f)
-                    .alpha(0.15f),
+                    .alpha(0.25f),
                 contentScale = ContentScale.Fit,
             )
             Spacer(modifier = Modifier.height(4.dp))
@@ -57,13 +57,19 @@ fun ScanScreen(
                 "Happy Health",
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
-                color = watermarkColor.copy(alpha = 0.25f),
+                color = watermarkColor.copy(alpha = 0.35f),
                 textAlign = TextAlign.Center,
             )
             Text(
                 "Android Platform Test App",
                 fontSize = 20.sp,
-                color = watermarkColor.copy(alpha = 0.25f),
+                color = watermarkColor.copy(alpha = 0.35f),
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                "v${com.happyhealth.testapp.BuildConfig.VERSION_NAME}",
+                fontSize = 13.sp,
+                color = watermarkColor.copy(alpha = 0.30f),
                 textAlign = TextAlign.Center,
             )
             Spacer(modifier = Modifier.height(48.dp))
