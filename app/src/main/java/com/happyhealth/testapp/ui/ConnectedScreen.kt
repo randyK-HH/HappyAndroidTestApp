@@ -18,9 +18,12 @@ import androidx.compose.ui.Modifier
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.text.KeyboardOptions
 import kotlinx.coroutines.delay
 import com.happyhealth.bleplatform.api.ConnectionId
 import com.happyhealth.bleplatform.api.HpyConnectionState
@@ -48,6 +51,7 @@ fun ConnectedScreen(
 
     var showStatusDialog by remember { mutableStateOf(false) }
     var showDaqConfigDialog by remember { mutableStateOf(false) }
+    var showDaqConfigureDialog by remember { mutableStateOf(false) }
     var showShareDialog by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -391,6 +395,23 @@ fun ConnectedScreen(
             config = ring.daqConfig!!,
             fingerDetectionOn = ring.fingerDetectionOn,
             onDismiss = { showDaqConfigDialog = false },
+            onConfigure = {
+                showDaqConfigDialog = false
+                showDaqConfigureDialog = true
+            },
+        )
+    }
+
+    // ---- DAQ Configure Dialog ----
+    if (showDaqConfigureDialog && ring.daqConfig != null) {
+        DaqConfigureDialog(
+            config = ring.daqConfig!!,
+            fwVersion = ring.deviceInfo?.fwVersion,
+            onUpdate = { config, applyImmediately ->
+                viewModel.setDaqConfig(connId, config, applyImmediately)
+                showDaqConfigureDialog = false
+            },
+            onDismiss = { showDaqConfigureDialog = false },
         )
     }
 
@@ -455,7 +476,7 @@ private fun DeviceStatusDialog(
 }
 
 @Composable
-private fun DaqConfigDialog(config: DaqConfigData, fingerDetectionOn: Boolean?, onDismiss: () -> Unit) {
+private fun DaqConfigDialog(config: DaqConfigData, fingerDetectionOn: Boolean?, onDismiss: () -> Unit, onConfigure: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("DAQ Configuration") },
@@ -512,7 +533,334 @@ private fun DaqConfigDialog(config: DaqConfigData, fingerDetectionOn: Boolean?, 
             }
         },
         confirmButton = {
+            TextButton(onClick = onConfigure) { Text("Configure") }
+        },
+        dismissButton = {
             TextButton(onClick = onDismiss) { Text("Dismiss") }
+        },
+    )
+}
+
+private fun fwBuildAtLeast(fwVersion: String?, minBuild: Int): Boolean {
+    if (fwVersion == null) return false
+    val parts = fwVersion.split(".")
+    if (parts.size < 4) return false
+    val project = parts[0].toIntOrNull() ?: return false
+    val major = parts[1].toIntOrNull() ?: return false
+    val minor = parts[2].toIntOrNull() ?: return false
+    val build = parts[3].substringBefore('-').toIntOrNull() ?: return false
+    if (project > 2 || (project == 2 && major > 5)) return true
+    if (project == 2 && major == 5 && minor > 0) return true
+    return project == 2 && major == 5 && minor == 0 && build >= minBuild
+}
+
+private fun modeMinBuild(mode: Int): Int = when (mode) {
+    0 -> Int.MAX_VALUE // not available
+    in 1..7 -> 12
+    in 8..11 -> 15
+    in 12..13 -> 16
+    in 14..16 -> 29
+    in 17..18 -> 22
+    in 19..20 -> 25
+    21 -> 32
+    in 22..23 -> 33
+    24 -> 35
+    in 25..26 -> 52
+    else -> Int.MAX_VALUE
+}
+
+@Composable
+private fun DaqConfigureDialog(
+    config: DaqConfigData,
+    fwVersion: String?,
+    onUpdate: (DaqConfigData, Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    // Editable state for all fields
+    var applyImmediately by remember { mutableStateOf(true) }
+    var mode by remember { mutableStateOf(config.mode.toString()) }
+    var ambientLightEn by remember { mutableStateOf(config.ambientLightEn) }
+    var ambientLightPeriodMs by remember { mutableStateOf(config.ambientLightPeriodMs.toString()) }
+    var ambientTempEn by remember { mutableStateOf(config.ambientTempEn) }
+    var skinTempEn by remember { mutableStateOf(config.skinTempEn) }
+    var skinTempPeriodMs by remember { mutableStateOf(config.skinTempPeriodMs.toString()) }
+    var ppgCycleTimeMs by remember { mutableStateOf(config.ppgCycleTimeMs.toString()) }
+    var ppgIntervalTimeMs by remember { mutableStateOf(config.ppgIntervalTimeMs.toString()) }
+    var ppgOnDuringSleepEn by remember { mutableStateOf(config.ppgOnDuringSleepEn) }
+    var ppgFsr by remember { mutableStateOf(config.ppgFsr.toString()) }
+    var ppgStopConfig by remember { mutableStateOf(config.ppgStopConfig.toString()) }
+    var ppgAgcChannelConfig by remember { mutableStateOf(config.ppgAgcChannelConfig.toString()) }
+    var compressedSensingEn by remember { mutableStateOf(config.compressedSensingEn) }
+    var csMode by remember { mutableStateOf(config.csMode.toString()) }
+    var multiSpectralEn by remember { mutableStateOf(config.multiSpectralEn) }
+    var multiSpectralPeriodMs by remember { mutableStateOf(config.multiSpectralPeriodMs.toString()) }
+    var sfMaxLatencyMs by remember { mutableStateOf(config.sfMaxLatencyMs.toString()) }
+    var edaSweepEn by remember { mutableStateOf(config.edaSweepEn) }
+    var edaSweepPeriodMs by remember { mutableStateOf(config.edaSweepPeriodMs.toString()) }
+    var edaSweepParamCfg by remember { mutableStateOf(config.edaSweepParamCfg.toString()) }
+    var accUlpEn by remember { mutableStateOf(config.accUlpEn.toString()) }
+    var acc2gDuringSleepEn by remember { mutableStateOf(config.acc2gDuringSleepEn) }
+    var accInactivityConfig by remember { mutableStateOf(config.accInactivityConfig.toString()) }
+    var oppSampleEn by remember { mutableStateOf(config.oppSampleEn) }
+    var oppSamplePeriodMs by remember { mutableStateOf(config.oppSamplePeriodMs.toString()) }
+    var oppSampleOnTimeMs by remember { mutableStateOf(config.oppSampleOnTimeMs.toString()) }
+    var oppSampleAltMode by remember { mutableStateOf(config.oppSampleAltMode.toString()) }
+    var memfaultConfig by remember { mutableStateOf(config.memfaultConfig.toString()) }
+    var sleepThreshConfig by remember { mutableStateOf(config.sleepThreshConfig.toString()) }
+    var resetRingCfg by remember { mutableStateOf(config.resetRingCfg.toString()) }
+    var dailyDaqModeCfg by remember { mutableStateOf(config.dailyDaqModeCfg.toString()) }
+
+    val small = MaterialTheme.typography.bodySmall
+    val numKeyboard = KeyboardOptions(keyboardType = KeyboardType.Number)
+    val disabledAlpha = 0.38f
+
+    // Helper composables
+    @Composable
+    fun SectionLabel(text: String) {
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        HorizontalDivider()
+        Spacer(modifier = Modifier.height(4.dp))
+    }
+
+    @Composable
+    fun ConfigSwitch(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit, enabled: Boolean) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .alpha(if (enabled) 1f else disabledAlpha),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label, style = small)
+            Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
+        }
+    }
+
+    @Composable
+    fun ConfigTextField(label: String, value: String, onValueChange: (String) -> Unit, enabled: Boolean) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = { onValueChange(it.filter { c -> c.isDigit() }) },
+            label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+            enabled = enabled,
+            modifier = Modifier
+                .fillMaxWidth()
+                .alpha(if (enabled) 1f else disabledAlpha),
+            singleLine = true,
+            keyboardOptions = numKeyboard,
+            textStyle = small,
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Configure DAQ") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                // ---- General ----
+                SectionLabel("General")
+                ConfigSwitch("Apply Immediately", applyImmediately, { applyImmediately = it }, enabled = true)
+
+                // Mode dropdown
+                val modeEnabled = fwBuildAtLeast(fwVersion, 12)
+                var modeExpanded by remember { mutableStateOf(false) }
+                val currentMode = mode.toIntOrNull() ?: 0
+                Box(modifier = Modifier
+                    .fillMaxWidth()
+                    .alpha(if (modeEnabled) 1f else disabledAlpha)) {
+                    OutlinedTextField(
+                        value = "$currentMode - ${config.copy(mode = currentMode).modeString}",
+                        onValueChange = {},
+                        label = { Text("Mode", style = MaterialTheme.typography.labelSmall) },
+                        readOnly = true,
+                        enabled = modeEnabled,
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        textStyle = small,
+                    )
+                    // Invisible click overlay to open dropdown
+                    if (modeEnabled) {
+                        Box(modifier = Modifier
+                            .matchParentSize()
+                            .alpha(0f)
+                            .let { mod ->
+                                mod // clickable via DropdownMenu anchor
+                            })
+                        DropdownMenu(
+                            expanded = modeExpanded,
+                            onDismissRequest = { modeExpanded = false },
+                        ) {
+                            (1..26).forEach { m ->
+                                val minBuild = modeMinBuild(m)
+                                val available = fwBuildAtLeast(fwVersion, minBuild)
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            "$m - ${config.copy(mode = m).modeString}",
+                                            style = small,
+                                            color = if (available) MaterialTheme.colorScheme.onSurface
+                                                else MaterialTheme.colorScheme.onSurface.copy(alpha = disabledAlpha),
+                                        )
+                                    },
+                                    onClick = {
+                                        mode = m.toString()
+                                        modeExpanded = false
+                                    },
+                                    enabled = available,
+                                )
+                            }
+                        }
+                    }
+                    // Tap area
+                    if (modeEnabled) {
+                        @Suppress("DEPRECATION")
+                        Box(modifier = Modifier
+                            .matchParentSize()
+                            .padding(0.dp)
+                            .let { it }) {
+                            TextButton(
+                                onClick = { modeExpanded = true },
+                                modifier = Modifier.matchParentSize(),
+                            ) {}
+                        }
+                    }
+                }
+
+                // ---- Ambient Light ----
+                SectionLabel("Ambient Light")
+                ConfigSwitch("Enable", ambientLightEn, { ambientLightEn = it }, fwBuildAtLeast(fwVersion, 12))
+                ConfigTextField("Period (ms)", ambientLightPeriodMs, { ambientLightPeriodMs = it }, fwBuildAtLeast(fwVersion, 12))
+
+                // ---- Temperature ----
+                SectionLabel("Temperature")
+                ConfigSwitch("Ambient Temp Enable", ambientTempEn, { ambientTempEn = it }, fwBuildAtLeast(fwVersion, 12))
+                // Ambient temp period is always disabled (tied to EDA)
+                OutlinedTextField(
+                    value = config.ambientTempPeriodMs.toString(),
+                    onValueChange = {},
+                    label = { Text("Ambient Temp Period (tied to EDA)", style = MaterialTheme.typography.labelSmall) },
+                    enabled = false,
+                    modifier = Modifier.fillMaxWidth().alpha(disabledAlpha),
+                    singleLine = true,
+                    textStyle = small,
+                )
+                ConfigSwitch("Skin Temp Enable", skinTempEn, { skinTempEn = it }, fwBuildAtLeast(fwVersion, 12))
+                ConfigTextField("Skin Temp Period (ms)", skinTempPeriodMs, { skinTempPeriodMs = it }, fwBuildAtLeast(fwVersion, 12))
+
+                // ---- PPG ----
+                SectionLabel("PPG")
+                ConfigTextField("Cycle Time (ms)", ppgCycleTimeMs, { ppgCycleTimeMs = it }, fwBuildAtLeast(fwVersion, 12))
+                ConfigTextField("Interval Time (ms)", ppgIntervalTimeMs, { ppgIntervalTimeMs = it }, fwBuildAtLeast(fwVersion, 12))
+                ConfigSwitch("On During Sleep", ppgOnDuringSleepEn, { ppgOnDuringSleepEn = it }, fwBuildAtLeast(fwVersion, 12))
+                ConfigTextField("FSR (0-5)", ppgFsr, { ppgFsr = it }, fwBuildAtLeast(fwVersion, 16))
+                ConfigTextField("Stop Config (0-255)", ppgStopConfig, { ppgStopConfig = it }, fwBuildAtLeast(fwVersion, 41))
+                ConfigTextField("AGC Channel Config (0-255)", ppgAgcChannelConfig, { ppgAgcChannelConfig = it }, fwBuildAtLeast(fwVersion, 44))
+
+                // ---- Compressed Sensing ----
+                SectionLabel("Compressed Sensing")
+                ConfigSwitch("Enable", compressedSensingEn, { compressedSensingEn = it }, fwBuildAtLeast(fwVersion, 12))
+                ConfigTextField("CS Mode (0-3)", csMode, { csMode = it }, fwBuildAtLeast(fwVersion, 55))
+
+                // ---- Multi-Spectral ----
+                SectionLabel("Multi-Spectral")
+                ConfigSwitch("Enable", multiSpectralEn, { multiSpectralEn = it }, fwBuildAtLeast(fwVersion, 12))
+                ConfigTextField("Period (ms)", multiSpectralPeriodMs, { multiSpectralPeriodMs = it }, fwBuildAtLeast(fwVersion, 16))
+
+                // ---- Superframe ----
+                SectionLabel("Superframe")
+                ConfigTextField("Max Latency (ms)", sfMaxLatencyMs, { sfMaxLatencyMs = it }, fwBuildAtLeast(fwVersion, 16))
+
+                // ---- EDA Sweep ----
+                SectionLabel("EDA Sweep")
+                ConfigSwitch("Enable", edaSweepEn, { edaSweepEn = it }, fwBuildAtLeast(fwVersion, 28))
+                ConfigTextField("Period (ms)", edaSweepPeriodMs, { edaSweepPeriodMs = it }, fwBuildAtLeast(fwVersion, 28))
+                ConfigTextField("Param Config (0-255)", edaSweepParamCfg, { edaSweepParamCfg = it }, fwBuildAtLeast(fwVersion, 69))
+
+                // ---- Accelerometer ----
+                SectionLabel("Accelerometer")
+                ConfigTextField("ULP Config (0-255)", accUlpEn, { accUlpEn = it }, fwBuildAtLeast(fwVersion, 22))
+                ConfigSwitch("2G During Sleep", acc2gDuringSleepEn, { acc2gDuringSleepEn = it }, fwBuildAtLeast(fwVersion, 36))
+                ConfigTextField("Inactivity Config (0-200)", accInactivityConfig, { accInactivityConfig = it }, fwBuildAtLeast(fwVersion, 40))
+
+                // ---- Opportunistic Sampling ----
+                SectionLabel("Opportunistic Sampling")
+                ConfigSwitch("Enable", oppSampleEn, { oppSampleEn = it }, fwBuildAtLeast(fwVersion, 30))
+                ConfigTextField("Period (ms)", oppSamplePeriodMs, { oppSamplePeriodMs = it }, fwBuildAtLeast(fwVersion, 30))
+                ConfigTextField("On-Time (ms)", oppSampleOnTimeMs, { oppSampleOnTimeMs = it }, fwBuildAtLeast(fwVersion, 31))
+                ConfigTextField("Alt Mode (0-20)", oppSampleAltMode, { oppSampleAltMode = it }, fwBuildAtLeast(fwVersion, 30))
+
+                // ---- Memfault ----
+                SectionLabel("Memfault")
+                ConfigTextField("Config (0-255)", memfaultConfig, { memfaultConfig = it }, fwBuildAtLeast(fwVersion, 30))
+
+                // ---- Sleep ----
+                SectionLabel("Sleep")
+                ConfigTextField("Threshold Config (0-255)", sleepThreshConfig, { sleepThreshConfig = it }, fwBuildAtLeast(fwVersion, 45))
+
+                // ---- Reset ----
+                SectionLabel("Reset")
+                ConfigTextField("Reset Ring Cfg (0-50)", resetRingCfg, { resetRingCfg = it }, fwBuildAtLeast(fwVersion, 60))
+
+                // ---- Daily DAQ Mode ----
+                SectionLabel("Daily DAQ Mode")
+                ConfigTextField("Config (0-255)", dailyDaqModeCfg, { dailyDaqModeCfg = it }, fwBuildAtLeast(fwVersion, 76))
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                // Build config with clamped values
+                fun Int.clamp(min: Int, max: Int) = this.coerceIn(min, max)
+                fun UInt.clamp(min: UInt, max: UInt) = this.coerceIn(min, max)
+
+                val newConfig = DaqConfigData(
+                    version = config.version,
+                    mode = (mode.toIntOrNull() ?: config.mode).clamp(1, 26),
+                    ambientLightEn = ambientLightEn,
+                    ambientLightPeriodMs = (ambientLightPeriodMs.toUIntOrNull() ?: config.ambientLightPeriodMs).clamp(1000u, 60000u),
+                    ambientTempEn = ambientTempEn,
+                    ambientTempPeriodMs = config.ambientTempPeriodMs, // read-only, tied to EDA
+                    skinTempEn = skinTempEn,
+                    skinTempPeriodMs = (skinTempPeriodMs.toUIntOrNull() ?: config.skinTempPeriodMs).clamp(1000u, 60000u),
+                    ppgCycleTimeMs = (ppgCycleTimeMs.toUIntOrNull() ?: config.ppgCycleTimeMs).clamp(1000u, 3600000u),
+                    ppgIntervalTimeMs = (ppgIntervalTimeMs.toUIntOrNull() ?: config.ppgIntervalTimeMs).clamp(1000u, 3600000u),
+                    ppgOnDuringSleepEn = ppgOnDuringSleepEn,
+                    compressedSensingEn = compressedSensingEn,
+                    multiSpectralEn = multiSpectralEn,
+                    multiSpectralPeriodMs = (multiSpectralPeriodMs.toUIntOrNull() ?: config.multiSpectralPeriodMs),
+                    sfMaxLatencyMs = (sfMaxLatencyMs.toUIntOrNull() ?: config.sfMaxLatencyMs),
+                    ppgFsr = (ppgFsr.toIntOrNull() ?: config.ppgFsr).clamp(0, 5),
+                    edaSweepEn = edaSweepEn,
+                    edaSweepPeriodMs = (edaSweepPeriodMs.toUIntOrNull() ?: config.edaSweepPeriodMs),
+                    accUlpEn = (accUlpEn.toIntOrNull() ?: config.accUlpEn).clamp(0, 255),
+                    oppSampleEn = oppSampleEn,
+                    oppSamplePeriodMs = (oppSamplePeriodMs.toUIntOrNull() ?: config.oppSamplePeriodMs),
+                    oppSampleAltMode = (oppSampleAltMode.toIntOrNull() ?: config.oppSampleAltMode).clamp(0, 20),
+                    memfaultConfig = (memfaultConfig.toIntOrNull() ?: config.memfaultConfig).clamp(0, 255),
+                    oppSampleOnTimeMs = (oppSampleOnTimeMs.toUIntOrNull() ?: config.oppSampleOnTimeMs),
+                    acc2gDuringSleepEn = acc2gDuringSleepEn,
+                    accInactivityConfig = (accInactivityConfig.toIntOrNull() ?: config.accInactivityConfig).clamp(0, 200),
+                    ppgStopConfig = (ppgStopConfig.toIntOrNull() ?: config.ppgStopConfig).clamp(0, 255),
+                    ppgAgcChannelConfig = (ppgAgcChannelConfig.toIntOrNull() ?: config.ppgAgcChannelConfig).clamp(0, 255),
+                    sleepThreshConfig = (sleepThreshConfig.toIntOrNull() ?: config.sleepThreshConfig).clamp(0, 255),
+                    csMode = (csMode.toIntOrNull() ?: config.csMode).clamp(0, 3),
+                    resetRingCfg = (resetRingCfg.toIntOrNull() ?: config.resetRingCfg).clamp(0, 50),
+                    edaSweepParamCfg = (edaSweepParamCfg.toIntOrNull() ?: config.edaSweepParamCfg).clamp(0, 255),
+                    dailyDaqModeCfg = (dailyDaqModeCfg.toIntOrNull() ?: config.dailyDaqModeCfg).clamp(0, 255),
+                )
+                onUpdate(newConfig, applyImmediately)
+            }) { Text("Update") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
         },
     )
 }

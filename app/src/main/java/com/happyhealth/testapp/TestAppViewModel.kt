@@ -157,6 +157,16 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         api.getDeviceStatus(connId) // refresh finger detection state
     }
 
+    fun setDaqConfig(connId: ConnectionId, config: DaqConfigData, applyImmediately: Boolean) {
+        clearCommandStatus(connId)
+        api.setDaqConfig(connId, config, applyImmediately)
+        // Auto-refresh after a short delay to confirm changes
+        viewModelScope.launch {
+            delay(500)
+            api.getDaqConfig(connId)
+        }
+    }
+
     fun startDaq(connId: ConnectionId) {
         clearCommandStatus(connId)
         api.startDaq(connId)
