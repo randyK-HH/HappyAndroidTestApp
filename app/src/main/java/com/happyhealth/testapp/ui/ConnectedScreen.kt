@@ -325,9 +325,10 @@ fun ConnectedScreen(
                         progress = ring.downloadProgress.toFloat() / ring.downloadTotal,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    val sizeKb = ring.downloadProgress * 4  // each frame = 4096 bytes = 4 kB
                     val transportLabel = if (ring.downloadTransport.isNotEmpty()) "  (${ring.downloadTransport})" else ""
                     Text(
-                        "${ring.downloadProgress} / ${ring.downloadTotal} frames$transportLabel",
+                        "${ring.downloadProgress} frames (${sizeKb}kB)$transportLabel",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 } else {
@@ -337,8 +338,22 @@ fun ConnectedScreen(
                 Spacer(modifier = Modifier.height(4.dp))
             } else if (isWaiting) {
                 Spacer(modifier = Modifier.height(4.dp))
-                Text("Waiting for data...", style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.tertiary)
+                val sizeKb = ring.downloadProgress * 4
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        "Waiting for data...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                    Text(
+                        "${ring.downloadProgress} frames (${sizeKb}kB)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
                 Spacer(modifier = Modifier.height(4.dp))
             }
             if (ring.totalFramesDownloaded > 0 && !isDownloading) {
