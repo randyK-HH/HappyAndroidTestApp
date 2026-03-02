@@ -610,7 +610,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         val entry = LogEntry(connId = connId, message = message)
 
         // Global log
-        _eventLog.value = (_eventLog.value + entry).takeLast(1000)
+        _eventLog.value = (_eventLog.value + entry).takeLast(10000)
 
         // Per-connection log
         if (connId.value >= 0) {
