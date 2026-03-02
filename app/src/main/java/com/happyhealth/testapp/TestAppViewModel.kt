@@ -245,11 +245,13 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
 
     fun startFwUpdate(connId: ConnectionId) {
         val bytes = fwImageBytes ?: return
+        acquireDownloadWakeLock()
         api.startFwUpdate(connId, bytes)
     }
 
     fun cancelFwUpdate(connId: ConnectionId) {
         api.cancelFwUpdate(connId)
+        releaseDownloadWakeLock()
         updateRing(connId) {
             it.copy(isFwUpdating = false, fwUpdateState = "Aborted/Recovering...", fwBlocksSent = 0, fwBlocksTotal = 0)
         }
@@ -455,6 +457,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         when (event) {
             is HpyEvent.StateChanged -> {
                 val wasDownloading = _connectedRings.value[event.connId.value]?.isDownloading == true
+                val wasFwUpdating = _connectedRings.value[event.connId.value]?.isFwUpdating == true
                 val dlState = when (event.state) {
                     HpyConnectionState.DOWNLOADING -> "Downloading"
                     HpyConnectionState.WAITING -> "Waiting"
@@ -479,7 +482,9 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                         reconnectRetryCount = event.retryCount,
                     )
                 }
-                if (wasDownloading && !isNowDownloading) {
+                val isNowFwUpdating = event.state == HpyConnectionState.FW_UPDATING ||
+                    event.state == HpyConnectionState.FW_UPDATE_REBOOTING
+                if ((wasDownloading && !isNowDownloading) || (wasFwUpdating && !isNowFwUpdating)) {
                     releaseDownloadWakeLock()
                 }
                 val retryStr = if (event.retryCount > 0) " (retry ${event.retryCount}/64)" else ""
