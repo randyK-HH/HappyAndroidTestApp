@@ -53,6 +53,7 @@ fun ConnectedScreen(
     var showDaqConfigDialog by remember { mutableStateOf(false) }
     var showDaqConfigureDialog by remember { mutableStateOf(false) }
     var showShareDialog by remember { mutableStateOf(false) }
+    var showSyncFrameDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -289,6 +290,29 @@ fun ConnectedScreen(
                     Text(fingerLabel)
                 }
             }
+            Spacer(modifier = Modifier.height(gridGap))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(gridGap),
+            ) {
+                Button(
+                    onClick = {
+                        viewModel.getSyncFrame(connId)
+                        showSyncFrameDialog = true
+                    },
+                    enabled = isReady,
+                    modifier = Modifier.weight(1f).height(gridRowHeight),
+                    shape = gridShape,
+                    contentPadding = gridContentPadding,
+                ) { Text("Sync Frame") }
+                Button(
+                    onClick = { viewModel.assert(connId) },
+                    enabled = isReady,
+                    modifier = Modifier.weight(1f).height(gridRowHeight),
+                    shape = gridShape,
+                    contentPadding = gridContentPadding,
+                ) { Text("Assert") }
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -438,6 +462,69 @@ fun ConnectedScreen(
             onDismiss = { showShareDialog = false },
         )
     }
+
+    // ---- Sync Frame Dialog ----
+    if (showSyncFrameDialog) {
+        SyncFrameDialog(
+            frameCount = ring.syncFrameCount,
+            reboots = ring.syncFrameReboots,
+            onCommit = { fc, rb ->
+                viewModel.setSyncFrame(connId, fc, rb)
+                showSyncFrameDialog = false
+            },
+            onDismiss = { showSyncFrameDialog = false },
+        )
+    }
+}
+
+@Composable
+private fun SyncFrameDialog(
+    frameCount: UInt,
+    reboots: UInt,
+    onCommit: (UInt, UInt) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var frameCountText by remember(frameCount) { mutableStateOf(frameCount.toString()) }
+    var rebootsText by remember(reboots) { mutableStateOf(reboots.toString()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Sync Frame") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = rebootsText,
+                    onValueChange = { rebootsText = it.filter { c -> c.isDigit() } },
+                    label = { Text("Reboots") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = frameCountText,
+                    onValueChange = { frameCountText = it.filter { c -> c.isDigit() } },
+                    label = { Text("Frame Count") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                TextButton(onClick = {
+                    frameCountText = "0"
+                    rebootsText = "0"
+                }) { Text("Clear") }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val fc = frameCountText.toUIntOrNull() ?: 0u
+                val rb = rebootsText.toUIntOrNull() ?: 0u
+                onCommit(fc, rb)
+            }) { Text("Commit") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }
 
 @Composable

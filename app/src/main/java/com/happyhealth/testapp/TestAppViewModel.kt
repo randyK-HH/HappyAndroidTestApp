@@ -58,6 +58,8 @@ data class ConnectedRingInfo(
     val reconnectRetryCount: Int = 0,
     val ringSize: Int = 0,
     val ringColor: Int = 0,
+    val syncFrameCount: UInt = 0u,
+    val syncFrameReboots: UInt = 0u,
 )
 
 data class LogEntry(
@@ -200,6 +202,21 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         val currentlyOn = ring.fingerDetectionOn ?: false
         api.setFingerDetection(connId, !currentlyOn)
         updateRing(connId) { it.copy(fingerDetectionOn = !currentlyOn) }
+    }
+
+    fun getSyncFrame(connId: ConnectionId) {
+        clearCommandStatus(connId)
+        api.getSyncFrame(connId)
+    }
+
+    fun setSyncFrame(connId: ConnectionId, frameCount: UInt, reboots: UInt) {
+        clearCommandStatus(connId)
+        api.setSyncFrame(connId, frameCount, reboots)
+    }
+
+    fun assert(connId: ConnectionId) {
+        clearCommandStatus(connId)
+        api.assert(connId)
     }
 
     fun startDownload(connId: ConnectionId) {
@@ -524,6 +541,13 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                 setCommandStatus(event.connId, "(${cmdHex(CommandId.GET_DAQ_CONFIG)}) Success")
                 updateRing(event.connId) { it.copy(daqConfig = event.config) }
                 addLog(event.connId, "DaqConfig: mode=${event.config.modeString}, version=${event.config.version}")
+            }
+            is HpyEvent.SyncFrame -> {
+                setCommandStatus(event.connId, "(${cmdHex(CommandId.GET_SYNC_FRAME)}) Success")
+                updateRing(event.connId) {
+                    it.copy(syncFrameCount = event.frameCount, syncFrameReboots = event.reboots)
+                }
+                addLog(event.connId, "SyncFrame: boot${event.reboots}:frame${event.frameCount}")
             }
             is HpyEvent.CommandResult -> {
                 setCommandStatus(event.connId, "(${cmdHex(event.commandId)}) Success")
