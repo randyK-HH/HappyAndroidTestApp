@@ -1,9 +1,11 @@
 package com.happyhealth.testapp
 
 import android.app.Application
+import android.content.Context
 import android.content.Intent
 import android.bluetooth.BluetoothDevice
 import android.net.Uri
+import android.os.PowerManager
 import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -89,6 +91,21 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
 
     // Per-connection frame writers for HPY2 file output
     private val frameWriters = mutableMapOf<Int, FrameWriter>()
+
+    // Wake lock to keep CPU alive during downloads (prevents Doze stalls)
+    private var downloadWakeLock: PowerManager.WakeLock? = null
+
+    private fun acquireDownloadWakeLock() {
+        if (downloadWakeLock?.isHeld == true) return
+        val pm = getApplication<Application>().getSystemService(Context.POWER_SERVICE) as PowerManager
+        downloadWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "HappyTestApp:Download")
+        downloadWakeLock?.acquire(60 * 60 * 1000L) // 60-min safety timeout
+    }
+
+    private fun releaseDownloadWakeLock() {
+        downloadWakeLock?.let { if (it.isHeld) it.release() }
+        downloadWakeLock = null
+    }
 
     val discoveredDevices: StateFlow<List<ScannedDeviceInfo>>
     val isScanning: StateFlow<Boolean>
@@ -192,6 +209,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         writer.ensureFileOpen(deviceId)
         frameWriters[connId.value] = writer
         addLog(connId, "HPY2 file: ${writer.filePath}")
+        acquireDownloadWakeLock()
         api.startDownload(connId)
     }
 
@@ -202,6 +220,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
             addLog(connId, "HPY2 file closed: ${writer.totalFramesWritten} frames written")
             writer.destroy()
         }
+        releaseDownloadWakeLock()
     }
 
     // ---- FW Update ----
@@ -435,11 +454,14 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
     private fun handleEvent(event: HpyEvent) {
         when (event) {
             is HpyEvent.StateChanged -> {
+                val wasDownloading = _connectedRings.value[event.connId.value]?.isDownloading == true
                 val dlState = when (event.state) {
                     HpyConnectionState.DOWNLOADING -> "Downloading"
                     HpyConnectionState.WAITING -> "Waiting"
                     else -> null
                 }
+                val isNowDownloading = event.state == HpyConnectionState.DOWNLOADING ||
+                    event.state == HpyConnectionState.WAITING
                 val reconnecting = event.state == HpyConnectionState.RECONNECTING ||
                     (event.state == HpyConnectionState.FW_UPDATE_REBOOTING && event.retryCount > 0)
                 updateRing(event.connId) {
@@ -456,6 +478,9 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                         isReconnecting = reconnecting,
                         reconnectRetryCount = event.retryCount,
                     )
+                }
+                if (wasDownloading && !isNowDownloading) {
+                    releaseDownloadWakeLock()
                 }
                 val retryStr = if (event.retryCount > 0) " (retry ${event.retryCount}/64)" else ""
                 addLog(event.connId, "State -> ${event.state}$retryStr")
@@ -666,6 +691,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
 
     override fun onCleared() {
         super.onCleared()
+        releaseDownloadWakeLock()
         frameWriters.values.forEach { it.destroy() }
         frameWriters.clear()
         api.destroy()
