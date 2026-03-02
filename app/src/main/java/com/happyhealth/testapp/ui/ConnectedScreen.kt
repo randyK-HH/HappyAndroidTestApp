@@ -1181,6 +1181,8 @@ private fun FwUpdateSection(
         val memfaultError by viewModel.memfaultError.collectAsState()
         val memfaultDownloading by viewModel.memfaultDownloading.collectAsState()
         val memfaultDownloadVersion by viewModel.memfaultDownloadVersion.collectAsState()
+        val memfaultDownloadProgress by viewModel.memfaultDownloadProgress.collectAsState()
+        val memfaultDownloadError by viewModel.memfaultDownloadError.collectAsState()
 
         MemfaultReleasesDialog(
             releases = releases,
@@ -1189,17 +1191,24 @@ private fun FwUpdateSection(
             error = memfaultError,
             isDownloading = memfaultDownloading,
             downloadingVersion = memfaultDownloadVersion,
+            downloadProgress = memfaultDownloadProgress,
+            downloadError = memfaultDownloadError,
             onLoadMore = { viewModel.loadMoreMemfaultReleases() },
             onSelectRelease = { release ->
                 viewModel.downloadMemfaultRelease(release.version, connId)
             },
+            onCancelDownload = { viewModel.cancelMemfaultDownload() },
             onDismiss = { showMemfaultDialog = false },
         )
 
-        // Auto-dismiss on successful download
-        LaunchedEffect(fwImage, memfaultDownloading) {
-            if (fwImage != null && !memfaultDownloading) {
+        // Auto-dismiss when a Memfault download completes successfully
+        var wasDownloading by remember { mutableStateOf(false) }
+        LaunchedEffect(memfaultDownloading) {
+            if (memfaultDownloading) {
+                wasDownloading = true
+            } else if (wasDownloading && fwImage != null) {
                 showMemfaultDialog = false
+                wasDownloading = false
             }
         }
     }

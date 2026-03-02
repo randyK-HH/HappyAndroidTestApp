@@ -23,12 +23,18 @@ fun MemfaultReleasesDialog(
     error: String?,
     isDownloading: Boolean,
     downloadingVersion: String?,
+    downloadProgress: Float,
+    downloadError: String?,
     onLoadMore: () -> Unit,
     onSelectRelease: (MemfaultRelease) -> Unit,
+    onCancelDownload: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
-        onDismissRequest = { if (!isDownloading) onDismiss() },
+        onDismissRequest = {
+            if (isDownloading) onCancelDownload()
+            onDismiss()
+        },
         title = { Text("Memfault Releases") },
         text = {
             Box(
@@ -41,7 +47,15 @@ fun MemfaultReleasesDialog(
                         modifier = Modifier.fillMaxWidth().height(200.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        CircularProgressIndicator()
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator()
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                "Retrieving version list...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 } else if (releases.isEmpty() && error != null) {
                     Box(
@@ -68,87 +82,117 @@ fun MemfaultReleasesDialog(
                         if (shouldLoadMore) onLoadMore()
                     }
 
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        itemsIndexed(releases) { _, release ->
-                            val isThisDownloading = isDownloading && downloadingVersion == release.version
-                            Card(
-                                onClick = {
-                                    if (!isDownloading) onSelectRelease(release)
-                                },
-                                enabled = !isDownloading,
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // Download error message
+                        if (downloadError != null) {
+                            Text(
+                                "Download failed: $downloadError",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(vertical = 4.dp),
+                            )
+                        }
+
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxWidth().weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            itemsIndexed(releases) { _, release ->
+                                val isThisDownloading = isDownloading && downloadingVersion == release.version
+                                Card(
+                                    onClick = {
+                                        if (!isDownloading) onSelectRelease(release)
+                                    },
+                                    enabled = !isDownloading,
+                                    modifier = Modifier.fillMaxWidth(),
                                 ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            release.version,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Bold,
-                                        )
-                                        Text(
-                                            formatDate(release.createdDate),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
+                                    Column {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    release.version,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.Bold,
+                                                )
+                                                Text(
+                                                    formatDate(release.createdDate),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            }
+                                            if (isThisDownloading) {
+                                                Text(
+                                                    "${(downloadProgress * 100).toInt()}%",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.padding(end = 8.dp),
+                                                )
+                                            }
+                                        }
+                                        if (isThisDownloading) {
+                                            if (downloadProgress > 0f) {
+                                                LinearProgressIndicator(
+                                                    progress = { downloadProgress },
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                )
+                                            } else {
+                                                LinearProgressIndicator(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                )
+                                            }
+                                        }
                                     }
-                                    if (isThisDownloading) {
+                                }
+                            }
+
+                            // Loading indicator at bottom when fetching next page
+                            if (isLoading && releases.isNotEmpty()) {
+                                item {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(8.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
                                         CircularProgressIndicator(
-                                            modifier = Modifier.size(20.dp),
+                                            modifier = Modifier.size(24.dp),
                                             strokeWidth = 2.dp,
                                         )
                                     }
                                 }
                             }
-                        }
 
-                        // Loading more indicator
-                        if (isLoading && releases.isNotEmpty()) {
-                            item {
-                                Box(
-                                    modifier = Modifier.fillMaxWidth().padding(8.dp),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(24.dp),
-                                        strokeWidth = 2.dp,
+                            // Error at bottom of list
+                            if (error != null && releases.isNotEmpty()) {
+                                item {
+                                    Text(
+                                        error,
+                                        color = MaterialTheme.colorScheme.error,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.padding(8.dp),
                                     )
                                 }
                             }
-                        }
 
-                        // Error at bottom of list
-                        if (error != null && releases.isNotEmpty()) {
-                            item {
-                                Text(
-                                    error,
-                                    color = MaterialTheme.colorScheme.error,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.padding(8.dp),
-                                )
-                            }
-                        }
-
-                        // End of list caption
-                        if (!hasMore && !isLoading && releases.isNotEmpty()) {
-                            item {
-                                Text(
-                                    "${releases.size} releases loaded",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(8.dp),
-                                )
+                            // End of list caption
+                            if (!hasMore && !isLoading && releases.isNotEmpty()) {
+                                item {
+                                    Text(
+                                        "${releases.size} releases loaded",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(8.dp),
+                                    )
+                                }
                             }
                         }
                     }
@@ -157,8 +201,10 @@ fun MemfaultReleasesDialog(
         },
         dismissButton = {
             TextButton(
-                onClick = onDismiss,
-                enabled = !isDownloading,
+                onClick = {
+                    if (isDownloading) onCancelDownload()
+                    onDismiss()
+                },
             ) {
                 Text("Cancel")
             }

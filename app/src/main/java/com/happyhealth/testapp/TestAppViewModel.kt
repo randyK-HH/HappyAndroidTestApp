@@ -250,6 +250,11 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
     val memfaultDownloading: StateFlow<Boolean> = _memfaultDownloading
     private val _memfaultDownloadVersion = MutableStateFlow<String?>(null)
     val memfaultDownloadVersion: StateFlow<String?> = _memfaultDownloadVersion
+    private val _memfaultDownloadProgress = MutableStateFlow(0f)
+    val memfaultDownloadProgress: StateFlow<Float> = _memfaultDownloadProgress
+    private val _memfaultDownloadError = MutableStateFlow<String?>(null)
+    val memfaultDownloadError: StateFlow<String?> = _memfaultDownloadError
+    private var memfaultDownloadJob: Job? = null
 
     /** Reset state and fetch page 1. Called when Memfault dialog opens. */
     fun fetchMemfaultReleases() {
@@ -284,21 +289,36 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
     fun downloadMemfaultRelease(version: String, connId: ConnectionId) {
         _memfaultDownloading.value = true
         _memfaultDownloadVersion.value = version
-        _memfaultError.value = null
+        _memfaultDownloadProgress.value = 0f
+        _memfaultDownloadError.value = null
 
-        viewModelScope.launch(Dispatchers.IO) {
+        memfaultDownloadJob = viewModelScope.launch(Dispatchers.IO) {
+            val startMs = System.currentTimeMillis()
             try {
                 addLog(connId, "Memfault: fetching artifact URL for $version...")
                 val artifactUrl = memfaultClient.fetchArtifactUrl(version)
+                val fetchMs = System.currentTimeMillis() - startMs
+                addLog(connId, "Memfault: artifact URL fetched in ${fetchMs}ms")
 
                 addLog(connId, "Memfault: downloading $version...")
-                val bytes = memfaultClient.downloadArtifact(artifactUrl)
+                val dlStartMs = System.currentTimeMillis()
+                val bytes = memfaultClient.downloadArtifact(artifactUrl) { bytesRead, totalBytes ->
+                    if (totalBytes > 0) {
+                        _memfaultDownloadProgress.value = bytesRead.toFloat() / totalBytes.toFloat()
+                    } else {
+                        // No Content-Length: use estimated size (~300KB typical FW image)
+                        _memfaultDownloadProgress.value = (bytesRead.toFloat() / 300_000f).coerceAtMost(0.95f)
+                    }
+                }
+                val dlMs = System.currentTimeMillis() - dlStartMs
+                val totalMs = System.currentTimeMillis() - startMs
+                addLog(connId, "Memfault: downloaded ${bytes.size} bytes in ${dlMs}ms (total: ${totalMs}ms)")
 
                 addLog(connId, "Memfault: validating $version (${bytes.size} bytes)...")
                 val reader = FwImageReader()
                 val status = reader.readAndValidateBytes(bytes, "$version.img")
                 if (status != FwImageStatus.OK) {
-                    _memfaultError.value = "Image validation failed: $status"
+                    _memfaultDownloadError.value = "Image validation failed: $status"
                     addLog(connId, "Memfault: validation failed for $version: $status")
                     return@launch
                 }
@@ -308,13 +328,21 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                 addLog(connId, "Memfault FW image: ${reader.imageInfo?.fileName}, " +
                     "version=${reader.imageInfo?.version}, ${reader.imageInfo?.fileSize} bytes")
             } catch (e: Exception) {
-                _memfaultError.value = e.message ?: "Download failed"
-                addLog(connId, "Memfault: error downloading $version: ${e.message}")
+                val totalMs = System.currentTimeMillis() - startMs
+                _memfaultDownloadError.value = e.message ?: "Download failed"
+                addLog(connId, "Memfault: error after ${totalMs}ms downloading $version: ${e.message}")
             } finally {
                 _memfaultDownloading.value = false
                 _memfaultDownloadVersion.value = null
             }
         }
+    }
+
+    fun cancelMemfaultDownload() {
+        memfaultDownloadJob?.cancel()
+        memfaultDownloadJob = null
+        _memfaultDownloading.value = false
+        _memfaultDownloadVersion.value = null
     }
 
     fun listHpy2Files(): List<java.io.File> {
