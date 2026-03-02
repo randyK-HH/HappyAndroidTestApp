@@ -379,8 +379,13 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         val logs = _connectionLogs.value[connId.value] ?: return null
         if (logs.isEmpty()) return null
 
+        val deviceId = _connectedRings.value[connId.value]?.name
         val baseDir = getApplication<Application>().getExternalFilesDir(null) ?: return null
-        val folder = java.io.File(baseDir, "BLE_EVENT_LOGS")
+        val folder = if (deviceId != null) {
+            java.io.File(java.io.File(baseDir, "BLE_EVENT_LOGS"), deviceId)
+        } else {
+            java.io.File(baseDir, "BLE_EVENT_LOGS")
+        }
         if (!folder.exists()) folder.mkdirs()
 
         val timeFormat = java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US)
@@ -401,9 +406,13 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         return file.absolutePath
     }
 
-    fun listEventLogFiles(): List<java.io.File> {
+    fun listEventLogFiles(deviceId: String? = null): List<java.io.File> {
         val baseDir = getApplication<Application>().getExternalFilesDir(null) ?: return emptyList()
-        val folder = java.io.File(baseDir, "BLE_EVENT_LOGS")
+        val folder = if (deviceId != null) {
+            java.io.File(java.io.File(baseDir, "BLE_EVENT_LOGS"), deviceId)
+        } else {
+            java.io.File(baseDir, "BLE_EVENT_LOGS")
+        }
         if (!folder.isDirectory) return emptyList()
         return folder.listFiles { f -> f.extension == "txt" }
             ?.sortedByDescending { it.lastModified() }

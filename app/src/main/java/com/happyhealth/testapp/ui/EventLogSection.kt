@@ -181,21 +181,23 @@ fun FullScreenEventLog(
     }
 
     if (showShareDialog) {
+        val deviceId = viewModel.connectedRings.collectAsState().value[connId.value]?.name
         ShareEventLogDialog(
             viewModel = viewModel,
+            deviceId = deviceId,
             onDismiss = { showShareDialog = false },
         )
     }
 }
 
 @Composable
-private fun ShareEventLogDialog(viewModel: TestAppViewModel, onDismiss: () -> Unit) {
+private fun ShareEventLogDialog(viewModel: TestAppViewModel, deviceId: String?, onDismiss: () -> Unit) {
     val context = LocalContext.current
-    var files by remember { mutableStateOf(viewModel.listEventLogFiles()) }
+    var files by remember { mutableStateOf(viewModel.listEventLogFiles(deviceId)) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Share / Manage Event Logs") },
+        title = { Text("Event Logs${deviceId?.let { " — $it" } ?: ""}") },
         text = {
             if (files.isEmpty()) {
                 Text("No saved event logs found.", style = MaterialTheme.typography.bodyMedium)
@@ -237,7 +239,7 @@ private fun ShareEventLogDialog(viewModel: TestAppViewModel, onDismiss: () -> Un
                             IconButton(
                                 onClick = {
                                     file.delete()
-                                    files = viewModel.listEventLogFiles()
+                                    files = viewModel.listEventLogFiles(deviceId)
                                 },
                             ) {
                                 Icon(
