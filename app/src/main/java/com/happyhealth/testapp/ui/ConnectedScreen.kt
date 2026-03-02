@@ -434,6 +434,7 @@ fun ConnectedScreen(
     if (showShareDialog) {
         ShareHpy2Dialog(
             viewModel = viewModel,
+            deviceId = ring.name,
             onDismiss = { showShareDialog = false },
         )
     }
@@ -955,13 +956,13 @@ private fun DownloadSectionHeader(title: String, downloadState: String?, onShare
 }
 
 @Composable
-private fun ShareHpy2Dialog(viewModel: TestAppViewModel, onDismiss: () -> Unit) {
+private fun ShareHpy2Dialog(viewModel: TestAppViewModel, deviceId: String, onDismiss: () -> Unit) {
     val context = LocalContext.current
-    var files by remember { mutableStateOf(viewModel.listHpy2Files()) }
+    var files by remember { mutableStateOf(viewModel.listHpy2Files(deviceId)) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Share / Manage HPY2 Files") },
+        title = { Text("HPY2 Files — $deviceId") },
         text = {
             if (files.isEmpty()) {
                 Text("No .hpy2 files found.", style = MaterialTheme.typography.bodyMedium)
@@ -1003,7 +1004,7 @@ private fun ShareHpy2Dialog(viewModel: TestAppViewModel, onDismiss: () -> Unit) 
                             IconButton(
                                 onClick = {
                                     file.delete()
-                                    files = viewModel.listHpy2Files()
+                                    files = viewModel.listHpy2Files(deviceId)
                                 },
                             ) {
                                 Icon(

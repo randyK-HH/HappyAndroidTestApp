@@ -24,11 +24,15 @@ class FrameWriter(private val context: Context) {
 
     val filePath: String? get() = outputFile?.absolutePath
 
-    fun ensureFileOpen() {
+    fun ensureFileOpen(deviceId: String? = null) {
         if (outputFile != null) return
 
         val baseDir = context.getExternalFilesDir(null) ?: return
-        val folder = File(baseDir, FOLDER_NAME)
+        val folder = if (deviceId != null) {
+            File(File(baseDir, FOLDER_NAME), deviceId)
+        } else {
+            File(baseDir, FOLDER_NAME)
+        }
         if (!folder.exists()) folder.mkdirs()
 
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())

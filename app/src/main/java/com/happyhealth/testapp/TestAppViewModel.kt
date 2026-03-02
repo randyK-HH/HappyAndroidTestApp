@@ -186,8 +186,10 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun startDownload(connId: ConnectionId) {
+        val ring = _connectedRings.value[connId.value]
+        val deviceId = ring?.name
         val writer = FrameWriter(getApplication())
-        writer.ensureFileOpen()
+        writer.ensureFileOpen(deviceId)
         frameWriters[connId.value] = writer
         addLog(connId, "HPY2 file: ${writer.filePath}")
         api.startDownload(connId)
@@ -345,9 +347,13 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         _memfaultDownloadVersion.value = null
     }
 
-    fun listHpy2Files(): List<java.io.File> {
+    fun listHpy2Files(deviceId: String? = null): List<java.io.File> {
         val baseDir = getApplication<Application>().getExternalFilesDir(null) ?: return emptyList()
-        val folder = java.io.File(baseDir, "BLE_HPY2_DATA")
+        val folder = if (deviceId != null) {
+            java.io.File(java.io.File(baseDir, "BLE_HPY2_DATA"), deviceId)
+        } else {
+            java.io.File(baseDir, "BLE_HPY2_DATA")
+        }
         if (!folder.isDirectory) return emptyList()
         return folder.listFiles { f -> f.extension == "hpy2" }
             ?.sortedByDescending { it.lastModified() }
