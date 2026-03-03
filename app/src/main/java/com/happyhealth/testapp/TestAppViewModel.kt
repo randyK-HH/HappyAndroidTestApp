@@ -172,6 +172,8 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         stopRssiPolling(connId)
         lastLoggedRssi.remove(connId.value)
         frameWriters.remove(connId.value)?.destroy()
+        fwImageBytesMap.remove(connId.value)
+        _fwImageInfoMap.value = _fwImageInfoMap.value - connId.value
         api.disconnect(connId)
         _connectedRings.value = _connectedRings.value - connId.value
     }
@@ -280,22 +282,22 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
 
     // ---- FW Update ----
 
-    private val _fwImageInfo = MutableStateFlow<FwImageInfo?>(null)
-    val fwImageInfo: StateFlow<FwImageInfo?> = _fwImageInfo
-    private var fwImageBytes: ByteArray? = null
+    private val _fwImageInfoMap = MutableStateFlow<Map<Int, FwImageInfo>>(emptyMap())
+    val fwImageInfoMap: StateFlow<Map<Int, FwImageInfo>> = _fwImageInfoMap
+    private val fwImageBytesMap = mutableMapOf<Int, ByteArray>()
 
-    fun loadFwImage(uri: Uri): String? {
+    fun loadFwImage(uri: Uri, connId: ConnectionId): String? {
         val reader = FwImageReader()
         val status = reader.readAndValidate(getApplication<Application>().contentResolver, uri)
         if (status != FwImageStatus.OK) return "Image validation failed: $status"
-        fwImageBytes = reader.imageBytes
-        _fwImageInfo.value = reader.imageInfo
+        fwImageBytesMap[connId.value] = reader.imageBytes!!
+        _fwImageInfoMap.value = _fwImageInfoMap.value + (connId.value to reader.imageInfo!!)
         return null
     }
 
-    fun clearFwImage() {
-        fwImageBytes = null
-        _fwImageInfo.value = null
+    fun clearFwImage(connId: ConnectionId) {
+        fwImageBytesMap.remove(connId.value)
+        _fwImageInfoMap.value = _fwImageInfoMap.value - connId.value
     }
 
     fun requestStartFwUpdate(connId: ConnectionId) {
@@ -304,7 +306,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun proceedStartFwUpdate(connId: ConnectionId) {
-        val bytes = fwImageBytes ?: return
+        val bytes = fwImageBytesMap[connId.value] ?: return
         acquireDownloadWakeLock()
         api.startFwUpdate(connId, bytes)
     }
@@ -337,8 +339,8 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
     private val _memfaultHasMore = MutableStateFlow(true)
     val memfaultHasMore: StateFlow<Boolean> = _memfaultHasMore
     private var memfaultNextPage = 1
-    private val _memfaultDownloading = MutableStateFlow(false)
-    val memfaultDownloading: StateFlow<Boolean> = _memfaultDownloading
+    private val _memfaultDownloadingConnId = MutableStateFlow<ConnectionId?>(null)
+    val memfaultDownloadingConnId: StateFlow<ConnectionId?> = _memfaultDownloadingConnId
     private val _memfaultDownloadVersion = MutableStateFlow<String?>(null)
     val memfaultDownloadVersion: StateFlow<String?> = _memfaultDownloadVersion
     private val _memfaultDownloadProgress = MutableStateFlow(0f)
@@ -376,9 +378,9 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    /** Download a version's artifact, validate, and set fwImageBytes/fwImageInfo. */
+    /** Download a version's artifact, validate, and set fwImageBytes/fwImageInfo for the connection. */
     fun downloadMemfaultRelease(version: String, connId: ConnectionId) {
-        _memfaultDownloading.value = true
+        _memfaultDownloadingConnId.value = connId
         _memfaultDownloadVersion.value = version
         _memfaultDownloadProgress.value = 0f
         _memfaultDownloadError.value = null
@@ -414,8 +416,8 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                     return@launch
                 }
 
-                fwImageBytes = reader.imageBytes
-                _fwImageInfo.value = reader.imageInfo
+                fwImageBytesMap[connId.value] = reader.imageBytes!!
+                _fwImageInfoMap.value = _fwImageInfoMap.value + (connId.value to reader.imageInfo!!)
                 addLog(connId, "Memfault FW image: ${reader.imageInfo?.fileName}, " +
                     "version=${reader.imageInfo?.version}, ${reader.imageInfo?.fileSize} bytes")
             } catch (e: Exception) {
@@ -423,7 +425,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                 _memfaultDownloadError.value = e.message ?: "Download failed"
                 addLog(connId, "Memfault: error after ${totalMs}ms downloading $version: ${e.message}")
             } finally {
-                _memfaultDownloading.value = false
+                _memfaultDownloadingConnId.value = null
                 _memfaultDownloadVersion.value = null
             }
         }
@@ -432,7 +434,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
     fun cancelMemfaultDownload() {
         memfaultDownloadJob?.cancel()
         memfaultDownloadJob = null
-        _memfaultDownloading.value = false
+        _memfaultDownloadingConnId.value = null
         _memfaultDownloadVersion.value = null
     }
 

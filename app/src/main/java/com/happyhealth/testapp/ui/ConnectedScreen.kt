@@ -1249,7 +1249,8 @@ private fun FwUpdateSection(
     gridContentPadding: PaddingValues,
 ) {
     val context = LocalContext.current
-    val fwImage by viewModel.fwImageInfo.collectAsState()
+    val fwImageMap by viewModel.fwImageInfoMap.collectAsState()
+    val fwImage = fwImageMap[connId.value]
     val isFwUpdating = ring.isFwUpdating ||
         ring.state == HpyConnectionState.FW_UPDATING ||
         ring.state == HpyConnectionState.FW_UPDATE_REBOOTING
@@ -1281,7 +1282,7 @@ private fun FwUpdateSection(
         ActivityResultContracts.GetContent()
     ) { uri ->
         if (uri != null) {
-            val error = viewModel.loadFwImage(uri)
+            val error = viewModel.loadFwImage(uri, connId)
             if (error != null) {
                 Toast.makeText(context, error, Toast.LENGTH_LONG).show()
             }
@@ -1326,7 +1327,8 @@ private fun FwUpdateSection(
         val memfaultLoading by viewModel.memfaultLoading.collectAsState()
         val memfaultHasMore by viewModel.memfaultHasMore.collectAsState()
         val memfaultError by viewModel.memfaultError.collectAsState()
-        val memfaultDownloading by viewModel.memfaultDownloading.collectAsState()
+        val memfaultDownloadingConnId by viewModel.memfaultDownloadingConnId.collectAsState()
+        val memfaultDownloading = memfaultDownloadingConnId == connId
         val memfaultDownloadVersion by viewModel.memfaultDownloadVersion.collectAsState()
         val memfaultDownloadProgress by viewModel.memfaultDownloadProgress.collectAsState()
         val memfaultDownloadError by viewModel.memfaultDownloadError.collectAsState()
@@ -1361,7 +1363,7 @@ private fun FwUpdateSection(
     }
 
     val clearAction: (() -> Unit)? = if (fwImage != null && !isFwUpdating) {
-        { viewModel.clearFwImage() }
+        { viewModel.clearFwImage(connId) }
     } else null
     FwUpdateSectionHeader("FW Update", ring.fwUpdateState, clearAction)
 
