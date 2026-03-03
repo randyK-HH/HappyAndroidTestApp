@@ -642,7 +642,10 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                         batchStartMs = System.currentTimeMillis(), // reset for next batch
                     )
                 }
-                addLog(event.connId, "DownloadBatch: ${event.framesInBatch} frames, CRC=${event.crcValid}, $throughput")
+                val rssiStr = if (event.rssi != null) ", RSSI=${event.rssi}" else ""
+                val retryStr = if (event.retryCount > 0) ", retries=${event.retryCount}" else ""
+                val ncfStr = if (event.ncfCount > 0) ", NCF=${event.ncfCount}" else ""
+                addLog(event.connId, "DownloadBatch: ${event.framesInBatch} frames, CRC=${event.crcValid}, $throughput, ${event.transport}$rssiStr$retryStr$ncfStr")
             }
             is HpyEvent.DownloadProgress -> {
                 updateRing(event.connId) {
