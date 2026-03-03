@@ -98,6 +98,10 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
     private val _connectionLogs = MutableStateFlow<Map<Int, List<LogEntry>>>(emptyMap())
     val connectionLogs: StateFlow<Map<Int, List<LogEntry>>> = _connectionLogs
 
+    // Per-connection fault counter (only reset on manual disconnect)
+    private val _faultCounts = MutableStateFlow<Map<Int, Int>>(emptyMap())
+    val faultCounts: StateFlow<Map<Int, Int>> = _faultCounts
+
     // RSSI pre-flight check
     private val pendingRssiAction = mutableMapOf<Int, String>()
     private val _rssiAlertConnId = MutableStateFlow<ConnectionId?>(null)
@@ -180,6 +184,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         frameWriters.remove(connId.value)?.destroy()
         fwImageBytesMap.remove(connId.value)
         _fwImageInfoMap.value = _fwImageInfoMap.value - connId.value
+        _faultCounts.value = _faultCounts.value - connId.value
         api.disconnect(connId)
         _connectedRings.value = _connectedRings.value - connId.value
     }
@@ -862,6 +867,13 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
 
     private fun addLog(connId: ConnectionId, message: String) {
         val entry = LogEntry(connId = connId, message = message)
+
+        // Track faults
+        if (message.startsWith("ERROR") && connId.value >= 0) {
+            val counts = _faultCounts.value.toMutableMap()
+            counts[connId.value] = (counts[connId.value] ?: 0) + 1
+            _faultCounts.value = counts
+        }
 
         // Global log
         _eventLog.value = (_eventLog.value + entry).takeLast(10000)

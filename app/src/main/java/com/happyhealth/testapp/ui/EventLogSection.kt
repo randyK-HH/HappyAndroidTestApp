@@ -38,6 +38,8 @@ fun EventLogSection(
 ) {
     val connectionLogs by viewModel.connectionLogs.collectAsState()
     val logs = connectionLogs[connId.value] ?: emptyList()
+    val faultCounts by viewModel.faultCounts.collectAsState()
+    val faultCount = faultCounts[connId.value] ?: 0
     val listState = rememberLazyListState()
 
     // Auto-scroll to bottom when new entries arrive (keyed on last entry id,
@@ -49,7 +51,6 @@ fun EventLogSection(
         }
     }
 
-    val faultCount = logs.count { it.message.startsWith("ERROR") }
     val title = if (faultCount == 0) "Event Log"
         else if (faultCount == 1) "Event Log  (1 fault)"
         else "Event Log  ($faultCount faults)"
@@ -101,6 +102,8 @@ fun FullScreenEventLog(
     val context = LocalContext.current
     val connectionLogs by viewModel.connectionLogs.collectAsState()
     val logs = connectionLogs[connId.value] ?: emptyList()
+    val faultCounts by viewModel.faultCounts.collectAsState()
+    val faultCount = faultCounts[connId.value] ?: 0
     val listState = rememberLazyListState()
     var showShareDialog by remember { mutableStateOf(false) }
 
@@ -111,7 +114,6 @@ fun FullScreenEventLog(
         }
     }
 
-    val faultCount = logs.count { it.message.startsWith("ERROR") }
     val title = if (faultCount == 0) "Event Log"
         else if (faultCount == 1) "Event Log  (1 fault)"
         else "Event Log  ($faultCount faults)"
