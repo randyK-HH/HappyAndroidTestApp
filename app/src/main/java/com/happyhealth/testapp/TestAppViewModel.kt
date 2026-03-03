@@ -107,6 +107,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
 
     // RSSI polling timers (10s interval per connection)
     private val rssiPollingJobs = mutableMapOf<Int, Job>()
+    private val lastLoggedRssi = mutableMapOf<Int, Int>()
 
     // Auto-clear timers for command status
     private val statusClearJobs = mutableMapOf<Int, Job>()
@@ -169,6 +170,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
 
     fun disconnect(connId: ConnectionId) {
         stopRssiPolling(connId)
+        lastLoggedRssi.remove(connId.value)
         frameWriters.remove(connId.value)?.destroy()
         api.disconnect(connId)
         _connectedRings.value = _connectedRings.value - connId.value
@@ -723,6 +725,8 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                 updateRing(event.connId) { it.copy(lastRssi = event.rssi) }
                 val action = pendingRssiAction.remove(event.connId.value)
                 if (action == "download") {
+                    addLog(event.connId, "RSSI: ${event.rssi} dBm")
+                    lastLoggedRssi[event.connId.value] = event.rssi
                     if (event.rssi > MIN_RSSI) {
                         proceedStartDownload(event.connId)
                     } else {
@@ -730,6 +734,8 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                         _rssiAlertValue.value = event.rssi
                     }
                 } else if (action == "fwUpdate") {
+                    addLog(event.connId, "RSSI: ${event.rssi} dBm")
+                    lastLoggedRssi[event.connId.value] = event.rssi
                     if (event.rssi > MIN_RSSI) {
                         proceedStartFwUpdate(event.connId)
                     } else {
@@ -737,15 +743,27 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                         _rssiAlertValue.value = event.rssi
                     }
                 } else {
-                    // From library auto-check (no pending action)
+                    // From library auto-check or 10s poll
                     val ring = _connectedRings.value[event.connId.value]
                     if (ring?.state == HpyConnectionState.WAITING && event.rssi <= MIN_RSSI) {
                         updateRing(event.connId) { it.copy(rssiWarningValue = event.rssi) }
                     } else {
                         updateRing(event.connId) { it.copy(rssiWarningValue = null) }
                     }
+                    val prev = lastLoggedRssi[event.connId.value]
+                    val crossedBelow = prev != null && prev > MIN_RSSI && event.rssi <= MIN_RSSI
+                    val crossedAbove = prev != null && prev <= MIN_RSSI && event.rssi > MIN_RSSI
+                    val bigDelta = prev == null || kotlin.math.abs(event.rssi - prev) > 5
+                    if (crossedBelow || crossedAbove || bigDelta) {
+                        val suffix = when {
+                            crossedBelow -> " (below threshold $MIN_RSSI dBm)"
+                            crossedAbove -> " (above threshold $MIN_RSSI dBm)"
+                            else -> ""
+                        }
+                        addLog(event.connId, "RSSI: ${event.rssi} dBm$suffix")
+                        lastLoggedRssi[event.connId.value] = event.rssi
+                    }
                 }
-                addLog(event.connId, "RSSI: ${event.rssi} dBm")
             }
             is HpyEvent.DeviceDiscovered -> { /* Handled via discoveredDevices StateFlow */ }
             else -> { /* Future events */ }
