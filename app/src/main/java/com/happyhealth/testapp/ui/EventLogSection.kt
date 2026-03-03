@@ -49,12 +49,17 @@ fun EventLogSection(
         }
     }
 
+    val faultCount = logs.count { it.message.startsWith("ERROR") }
+    val title = if (faultCount == 0) "Event Log"
+        else if (faultCount == 1) "Event Log  (1 fault)"
+        else "Event Log  ($faultCount faults)"
+
     Column(modifier = modifier) {
         Text(
-            "Event Log",
+            title,
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
+            color = if (faultCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(vertical = 4.dp),
         )
         HorizontalDivider()
@@ -106,6 +111,11 @@ fun FullScreenEventLog(
         }
     }
 
+    val faultCount = logs.count { it.message.startsWith("ERROR") }
+    val title = if (faultCount == 0) "Event Log"
+        else if (faultCount == 1) "Event Log  (1 fault)"
+        else "Event Log  ($faultCount faults)"
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -119,10 +129,10 @@ fun FullScreenEventLog(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "Event Log",
+                title,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
+                color = if (faultCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
             )
             Row {
                 IconButton(
