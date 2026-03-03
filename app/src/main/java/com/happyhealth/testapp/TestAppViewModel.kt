@@ -753,7 +753,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                     val prev = lastLoggedRssi[event.connId.value]
                     val crossedBelow = prev != null && prev > MIN_RSSI && event.rssi <= MIN_RSSI
                     val crossedAbove = prev != null && prev <= MIN_RSSI && event.rssi > MIN_RSSI
-                    val bigDelta = prev == null || kotlin.math.abs(event.rssi - prev) > 5
+                    val bigDelta = prev == null || kotlin.math.abs(event.rssi - prev) >= 10
                     if (crossedBelow || crossedAbove || bigDelta) {
                         val suffix = when {
                             crossedBelow -> " (below threshold $MIN_RSSI dBm)"
