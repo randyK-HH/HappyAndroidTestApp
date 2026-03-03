@@ -585,7 +585,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                         batchStartMs = System.currentTimeMillis(), // reset for next batch
                     )
                 }
-                addLog(event.connId, "DownloadBatch: ${event.framesInBatch} frames, total=${event.totalFramesDownloaded}, CRC=${event.crcValid}, $throughput")
+                addLog(event.connId, "DownloadBatch: ${event.framesInBatch} frames, CRC=${event.crcValid}, $throughput")
             }
             is HpyEvent.DownloadProgress -> {
                 updateRing(event.connId) {
@@ -595,8 +595,8 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                         downloadTransport = event.transport,
                     )
                 }
-                if (event.framesDownloaded % 8 == 0 || event.framesDownloaded == event.framesTotal) {
-                    addLog(event.connId, "DownloadProgress: ${event.framesDownloaded}/${event.framesTotal} (${event.transport})")
+                if (event.sessionFramesDownloaded % 8 == 0 || event.sessionFramesDownloaded == event.sessionFramesTotal) {
+                    addLog(event.connId, "DownloadProgress: ${event.sessionFramesDownloaded}/${event.sessionFramesTotal} (${event.transport})")
                 }
             }
             is HpyEvent.DownloadFrame -> {
@@ -610,7 +610,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                 }
             }
             is HpyEvent.DownloadComplete -> {
-                addLog(event.connId, "DownloadComplete: ${event.totalFrames} frames")
+                addLog(event.connId, "DownloadComplete: ${event.sessionFrames} frames")
             }
             is HpyEvent.FwUpdateProgress -> {
                 val fwState = when {
