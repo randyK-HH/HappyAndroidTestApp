@@ -109,6 +109,11 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
     private val rssiPollingJobs = mutableMapOf<Int, Job>()
     private val lastLoggedRssi = mutableMapOf<Int, Int>()
 
+    // Scan error message (e.g. notification subscribe timeout)
+    private val _scanErrorMessage = MutableStateFlow<String?>(null)
+    val scanErrorMessage: StateFlow<String?> = _scanErrorMessage
+    private var scanErrorClearJob: Job? = null
+
     // Auto-clear timers for command status
     private val statusClearJobs = mutableMapOf<Int, Job>()
 
@@ -154,6 +159,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun connect(device: ScannedDeviceInfo) {
+        clearScanError()
         val connId = api.connect(device.deviceHandle)
         if (connId != ConnectionId.INVALID) {
             _connectedRings.value = _connectedRings.value + (connId.value to ConnectedRingInfo(
@@ -625,6 +631,10 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                         it.copy(isFwUpdating = false, fwUpdateState = null, fwBlocksSent = 0, fwBlocksTotal = 0)
                     }
                 }
+                if (event.code == HpyErrorCode.NOTIFICATION_SUBSCRIBE_FAIL) {
+                    val deviceName = _connectedRings.value[event.connId.value]?.name ?: "Unknown"
+                    setScanError("Connection failed for $deviceName: notification subscription timed out")
+                }
             }
             is HpyEvent.Log -> {
                 addLog(event.connId, event.message)
@@ -811,6 +821,22 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
 
     private fun cmdHex(cmd: Byte): String =
         cmd.toUByte().toString(16).uppercase().padStart(2, '0')
+
+    private fun setScanError(message: String) {
+        _scanErrorMessage.value = message
+        scanErrorClearJob?.cancel()
+        scanErrorClearJob = viewModelScope.launch {
+            delay(60_000)
+            _scanErrorMessage.value = null
+            scanErrorClearJob = null
+        }
+    }
+
+    fun clearScanError() {
+        scanErrorClearJob?.cancel()
+        scanErrorClearJob = null
+        _scanErrorMessage.value = null
+    }
 
     private fun clearCommandStatus(connId: ConnectionId) {
         statusClearJobs[connId.value]?.cancel()

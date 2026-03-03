@@ -31,6 +31,7 @@ fun ScanScreen(
     val isScanning by viewModel.isScanning.collectAsState()
     val discovered by viewModel.discoveredDevices.collectAsState()
     val connectedRings by viewModel.connectedRings.collectAsState()
+    val scanErrorMessage by viewModel.scanErrorMessage.collectAsState()
 
     // Filter out devices that are already connected
     val connectedAddresses = connectedRings.values.map { it.address }.toSet()
@@ -135,6 +136,17 @@ fun ScanScreen(
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(vertical = 8.dp),
                 )
+            }
+
+            if (scanErrorMessage != null) {
+                item {
+                    Text(
+                        scanErrorMessage!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
             }
 
             if (unconnectedDevices.isEmpty() && !isScanning) {
