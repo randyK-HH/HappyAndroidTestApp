@@ -185,6 +185,7 @@ fun ConnectedScreen(
                 InfoRow("Physical", status.phyString)
                 InfoRow("DAQ Mode", status.daqString)
                 InfoRow("Battery", "${status.soc}% (${status.batteryVoltage}mV)")
+                InfoRow("RSSI", ring.lastRssi?.let { "$it dBm" } ?: "—")
                 InfoRow("Unsynced Frames", status.unsyncedFrames.toString())
                 InfoRow("Sync Position", status.syncString)
                 InfoRow("Clock Rate", status.clockRateString)
@@ -378,11 +379,20 @@ fun ConnectedScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text(
-                        "Waiting for data...",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.tertiary,
-                    )
+                    Row {
+                        Text(
+                            "Waiting for data...",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.tertiary,
+                        )
+                        if (ring.rssiWarningValue != null) {
+                            Text(
+                                "  (RSSI Low: ${ring.rssiWarningValue} dBm)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
                     Text(
                         "${ring.downloadProgress} frames (${sizeKb}kB)",
                         style = MaterialTheme.typography.bodySmall,
@@ -400,7 +410,7 @@ fun ConnectedScreen(
                 horizontalArrangement = Arrangement.spacedBy(gridGap),
             ) {
                 Button(
-                    onClick = { viewModel.startDownload(connId) },
+                    onClick = { viewModel.requestStartDownload(connId) },
                     enabled = canStartDownload && !isDownloading,
                     modifier = Modifier.weight(1f).height(gridRowHeight),
                     shape = gridShape,
@@ -435,6 +445,7 @@ fun ConnectedScreen(
         DeviceStatusDialog(
             status = ring.lastStatus!!,
             extendedStatus = ring.extendedStatus,
+            lastRssi = ring.lastRssi,
             onDismiss = { showStatusDialog = false },
         )
     }
@@ -484,6 +495,22 @@ fun ConnectedScreen(
                 showSyncFrameDialog = false
             },
             onDismiss = { showSyncFrameDialog = false },
+        )
+    }
+
+    // ---- RSSI Alert Dialog ----
+    val rssiAlertConnId by viewModel.rssiAlertConnId.collectAsState()
+    val rssiAlertValue by viewModel.rssiAlertValue.collectAsState()
+    if (rssiAlertConnId != null && rssiAlertConnId == connId) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissRssiAlert() },
+            title = { Text("Signal Too Weak") },
+            text = {
+                Text("RSSI is $rssiAlertValue dBm. Move the ring closer to the phone and try again.")
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.dismissRssiAlert() }) { Text("OK") }
+            },
         )
     }
 }
@@ -542,6 +569,7 @@ private fun SyncFrameDialog(
 private fun DeviceStatusDialog(
     status: DeviceStatusData,
     extendedStatus: ResponseParser.ExtendedDeviceStatus?,
+    lastRssi: Int?,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
@@ -559,6 +587,7 @@ private fun DeviceStatusDialog(
                 Text("Charger Status: ${status.chargerStatusString}", style = small)
                 Spacer(modifier = Modifier.height(4.dp))
                 Text("Battery: ${status.soc}% (${status.batteryVoltage} mV)", style = small)
+                Text("RSSI: ${lastRssi?.let { "$it dBm" } ?: "—"}", style = small)
                 Text("DAQ: ${status.daqString}", style = small)
                 Text("Unsynced Frames: ${status.unsyncedFrames}", style = small)
                 Text("Sync: ${status.syncString}", style = small)
@@ -1388,7 +1417,7 @@ private fun FwUpdateSection(
             }
         } else {
             Button(
-                onClick = { viewModel.startFwUpdate(connId) },
+                onClick = { viewModel.requestStartFwUpdate(connId) },
                 enabled = fwImage != null && isReady,
                 modifier = Modifier.weight(1f).height(gridRowHeight),
                 shape = gridShape,

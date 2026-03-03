@@ -64,6 +64,8 @@ data class ConnectedRingInfo(
     val ringColor: Int = 0,
     val syncFrameCount: UInt = 0u,
     val syncFrameReboots: UInt = 0u,
+    val rssiWarningValue: Int? = null,
+    val lastRssi: Int? = null,
 )
 
 data class LogEntry(
@@ -79,6 +81,10 @@ data class LogEntry(
 
 class TestAppViewModel(application: Application) : AndroidViewModel(application) {
 
+    companion object {
+        const val MIN_RSSI = -80
+    }
+
     private val shim = AndroidBleShim(application)
     private val api: HappyPlatformApi
 
@@ -91,6 +97,16 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
     // Per-connection event logs
     private val _connectionLogs = MutableStateFlow<Map<Int, List<LogEntry>>>(emptyMap())
     val connectionLogs: StateFlow<Map<Int, List<LogEntry>>> = _connectionLogs
+
+    // RSSI pre-flight check
+    private val pendingRssiAction = mutableMapOf<Int, String>()
+    private val _rssiAlertConnId = MutableStateFlow<ConnectionId?>(null)
+    val rssiAlertConnId: StateFlow<ConnectionId?> = _rssiAlertConnId
+    private val _rssiAlertValue = MutableStateFlow(0)
+    val rssiAlertValue: StateFlow<Int> = _rssiAlertValue
+
+    // RSSI polling timers (10s interval per connection)
+    private val rssiPollingJobs = mutableMapOf<Int, Job>()
 
     // Auto-clear timers for command status
     private val statusClearJobs = mutableMapOf<Int, Job>()
@@ -146,11 +162,13 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                 state = HpyConnectionState.CONNECTING,
                 ringSize = device.ringSize,
                 ringColor = device.ringColor,
+                lastRssi = device.rssi,
             ))
         }
     }
 
     fun disconnect(connId: ConnectionId) {
+        stopRssiPolling(connId)
         frameWriters.remove(connId.value)?.destroy()
         api.disconnect(connId)
         _connectedRings.value = _connectedRings.value - connId.value
@@ -223,7 +241,13 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         api.assert(connId)
     }
 
-    fun startDownload(connId: ConnectionId) {
+    fun requestStartDownload(connId: ConnectionId) {
+        updateRing(connId) { it.copy(rssiWarningValue = null) }
+        pendingRssiAction[connId.value] = "download"
+        api.readRssi(connId)
+    }
+
+    private fun proceedStartDownload(connId: ConnectionId) {
         val ring = _connectedRings.value[connId.value]
         val deviceId = ring?.name
         val writer = FrameWriter(getApplication())
@@ -237,6 +261,10 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         api.startDownload(connId)
     }
 
+    fun startDownload(connId: ConnectionId) {
+        proceedStartDownload(connId)
+    }
+
     fun stopDownload(connId: ConnectionId) {
         api.stopDownload(connId)
         val writer = frameWriters.remove(connId.value)
@@ -244,6 +272,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
             addLog(connId, "HPY2 file closed: ${writer.totalFramesWritten} frames written")
             writer.destroy()
         }
+        updateRing(connId) { it.copy(rssiWarningValue = null) }
         releaseDownloadWakeLock()
     }
 
@@ -267,10 +296,23 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         _fwImageInfo.value = null
     }
 
-    fun startFwUpdate(connId: ConnectionId) {
+    fun requestStartFwUpdate(connId: ConnectionId) {
+        pendingRssiAction[connId.value] = "fwUpdate"
+        api.readRssi(connId)
+    }
+
+    private fun proceedStartFwUpdate(connId: ConnectionId) {
         val bytes = fwImageBytes ?: return
         acquireDownloadWakeLock()
         api.startFwUpdate(connId, bytes)
+    }
+
+    fun startFwUpdate(connId: ConnectionId) {
+        proceedStartFwUpdate(connId)
+    }
+
+    fun dismissRssiAlert() {
+        _rssiAlertConnId.value = null
     }
 
     fun cancelFwUpdate(connId: ConnectionId) {
@@ -491,6 +533,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                     event.state == HpyConnectionState.WAITING
                 val reconnecting = event.state == HpyConnectionState.RECONNECTING ||
                     (event.state == HpyConnectionState.FW_UPDATE_REBOOTING && event.retryCount > 0)
+                val clearRssiWarning = event.state == HpyConnectionState.DOWNLOADING
                 updateRing(event.connId) {
                     it.copy(
                         state = event.state,
@@ -504,6 +547,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                         fwUpdateState = if (event.state == HpyConnectionState.READY) null else it.fwUpdateState,
                         isReconnecting = reconnecting,
                         reconnectRetryCount = event.retryCount,
+                        rssiWarningValue = if (clearRssiWarning) null else it.rssiWarningValue,
                     )
                 }
                 val isNowFwUpdating = event.state == HpyConnectionState.FW_UPDATING ||
@@ -511,10 +555,14 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                 if ((wasDownloading && !isNowDownloading) || (wasFwUpdating && !isNowFwUpdating)) {
                     releaseDownloadWakeLock()
                 }
+                if (event.state == HpyConnectionState.READY) {
+                    startRssiPolling(event.connId)
+                }
                 val retryStr = if (event.retryCount > 0) " (retry ${event.retryCount}/64)" else ""
                 addLog(event.connId, "State -> ${event.state}$retryStr")
                 // Auto-remove ring after reconnection failure
                 if (event.state == HpyConnectionState.DISCONNECTED) {
+                    stopRssiPolling(event.connId)
                     viewModelScope.launch {
                         delay(2000)
                         _connectedRings.value = _connectedRings.value - event.connId.value
@@ -671,6 +719,34 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                     uploadMemfaultChunks(event.connId, serial)
                 }
             }
+            is HpyEvent.RssiRead -> {
+                updateRing(event.connId) { it.copy(lastRssi = event.rssi) }
+                val action = pendingRssiAction.remove(event.connId.value)
+                if (action == "download") {
+                    if (event.rssi > MIN_RSSI) {
+                        proceedStartDownload(event.connId)
+                    } else {
+                        _rssiAlertConnId.value = event.connId
+                        _rssiAlertValue.value = event.rssi
+                    }
+                } else if (action == "fwUpdate") {
+                    if (event.rssi > MIN_RSSI) {
+                        proceedStartFwUpdate(event.connId)
+                    } else {
+                        _rssiAlertConnId.value = event.connId
+                        _rssiAlertValue.value = event.rssi
+                    }
+                } else {
+                    // From library auto-check (no pending action)
+                    val ring = _connectedRings.value[event.connId.value]
+                    if (ring?.state == HpyConnectionState.WAITING && event.rssi <= MIN_RSSI) {
+                        updateRing(event.connId) { it.copy(rssiWarningValue = event.rssi) }
+                    } else {
+                        updateRing(event.connId) { it.copy(rssiWarningValue = null) }
+                    }
+                }
+                addLog(event.connId, "RSSI: ${event.rssi} dBm")
+            }
             is HpyEvent.DeviceDiscovered -> { /* Handled via discoveredDevices StateFlow */ }
             else -> { /* Future events */ }
         }
@@ -694,6 +770,20 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                 addLog(connId, "Memfault: upload failed: ${e.message}")
             }
         }
+    }
+
+    private fun startRssiPolling(connId: ConnectionId) {
+        rssiPollingJobs[connId.value]?.cancel()
+        rssiPollingJobs[connId.value] = viewModelScope.launch {
+            while (true) {
+                delay(10_000)
+                api.readRssi(connId)
+            }
+        }
+    }
+
+    private fun stopRssiPolling(connId: ConnectionId) {
+        rssiPollingJobs.remove(connId.value)?.cancel()
     }
 
     private fun cmdHex(cmd: Byte): String =
@@ -738,6 +828,8 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
 
     override fun onCleared() {
         super.onCleared()
+        rssiPollingJobs.values.forEach { it.cancel() }
+        rssiPollingJobs.clear()
         releaseDownloadWakeLock()
         frameWriters.values.forEach { it.destroy() }
         frameWriters.clear()
