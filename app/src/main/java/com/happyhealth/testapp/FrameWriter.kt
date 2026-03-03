@@ -35,8 +35,9 @@ class FrameWriter(private val context: Context) {
         }
         if (!folder.exists()) folder.mkdirs()
 
+        val shortId = (deviceId?.removePrefix("HH_") ?: "unknown").lowercase()
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val fileName = "data_${timestamp}.hpy2"
+        val fileName = "hh_${shortId}_${timestamp}.hpy2"
         outputFile = File(folder, fileName)
         totalFramesWritten = 0
 

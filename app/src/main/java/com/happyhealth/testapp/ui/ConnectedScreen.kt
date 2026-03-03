@@ -343,18 +343,29 @@ fun ConnectedScreen(
             DownloadSectionHeader("Download", ring.downloadState, shareAction)
             if (isActivelyDownloading) {
                 Spacer(modifier = Modifier.height(4.dp))
-                if (ring.downloadTotal > 0) {
+                if (ring.sessionDownloadTotal > 0) {
                     @Suppress("DEPRECATION")
                     LinearProgressIndicator(
-                        progress = ring.downloadProgress.toFloat() / ring.downloadTotal,
+                        progress = ring.sessionDownloadProgress.toFloat() / ring.sessionDownloadTotal,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    val sizeKb = ring.downloadProgress * 4  // each frame = 4096 bytes = 4 kB
+                    val sessionSizeKb = ring.sessionDownloadProgress * 4  // each frame = 4096 bytes = 4 kB
+                    val cumulativeSizeKb = ring.downloadProgress * 4
                     val transportLabel = if (ring.downloadTransport.isNotEmpty()) "  (${ring.downloadTransport})" else ""
-                    Text(
-                        "${ring.downloadProgress} frames (${sizeKb}kB)$transportLabel",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            "${ring.sessionDownloadProgress} frames (${sessionSizeKb}kB)$transportLabel",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            "${ring.downloadProgress} frames (${cumulativeSizeKb}kB)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.tertiary,
+                        )
+                    }
                 } else {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     Text("Starting download...", style = MaterialTheme.typography.bodySmall)

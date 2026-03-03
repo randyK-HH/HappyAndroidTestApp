@@ -43,6 +43,10 @@ data class ConnectedRingInfo(
     val isDownloading: Boolean = false,
     val downloadProgress: Int = 0,
     val downloadTotal: Int = 0,
+    val downloadProgressOffset: Int = 0,
+    val downloadRawProgress: Int = 0,
+    val sessionDownloadProgress: Int = 0,
+    val sessionDownloadTotal: Int = 0,
     val downloadTransport: String = "",
     val totalFramesDownloaded: Int = 0,
     val batchStartMs: Long = 0L,
@@ -225,6 +229,9 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         val writer = FrameWriter(getApplication())
         writer.ensureFileOpen(deviceId)
         frameWriters[connId.value] = writer
+        updateRing(connId) {
+            it.copy(downloadProgress = 0, downloadTotal = 0, downloadProgressOffset = 0, downloadRawProgress = 0)
+        }
         addLog(connId, "HPY2 file: ${writer.filePath}")
         acquireDownloadWakeLock()
         api.startDownload(connId)
@@ -589,9 +596,18 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
             }
             is HpyEvent.DownloadProgress -> {
                 updateRing(event.connId) {
+                    val offset = if (event.framesDownloaded < it.downloadRawProgress) {
+                        it.downloadProgressOffset + it.downloadRawProgress
+                    } else {
+                        it.downloadProgressOffset
+                    }
                     it.copy(
-                        downloadProgress = event.framesDownloaded,
-                        downloadTotal = event.framesTotal,
+                        downloadProgress = offset + event.framesDownloaded,
+                        downloadTotal = offset + event.framesTotal,
+                        downloadProgressOffset = offset,
+                        downloadRawProgress = event.framesDownloaded,
+                        sessionDownloadProgress = event.sessionFramesDownloaded,
+                        sessionDownloadTotal = event.sessionFramesTotal,
                         downloadTransport = event.transport,
                     )
                 }
@@ -611,6 +627,8 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
             }
             is HpyEvent.DownloadComplete -> {
                 addLog(event.connId, "DownloadComplete: ${event.sessionFrames} frames")
+                val cumulative = _connectedRings.value[event.connId.value]?.downloadProgress ?: 0
+                addLog(event.connId, "Cumulative: $cumulative frames")
             }
             is HpyEvent.FwUpdateProgress -> {
                 val fwState = when {
