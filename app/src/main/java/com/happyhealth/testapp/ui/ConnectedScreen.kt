@@ -54,6 +54,7 @@ fun ConnectedScreen(
     var showDaqConfigureDialog by remember { mutableStateOf(false) }
     var showShareDialog by remember { mutableStateOf(false) }
     var showSyncFrameDialog by remember { mutableStateOf(false) }
+    var showAssertConfirm by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -307,7 +308,7 @@ fun ConnectedScreen(
                     contentPadding = gridContentPadding,
                 ) { Text("Sync Frame") }
                 Button(
-                    onClick = { viewModel.assert(connId) },
+                    onClick = { showAssertConfirm = true },
                     enabled = isReady,
                     modifier = Modifier.weight(1f).height(gridRowHeight),
                     shape = gridShape,
@@ -495,6 +496,24 @@ fun ConnectedScreen(
                 showSyncFrameDialog = false
             },
             onDismiss = { showSyncFrameDialog = false },
+        )
+    }
+
+    // ---- Assert Confirmation Dialog ----
+    if (showAssertConfirm) {
+        AlertDialog(
+            onDismissRequest = { showAssertConfirm = false },
+            title = { Text("Confirm Assert") },
+            text = { Text("This will trigger a firmware assert on the ring. Continue?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showAssertConfirm = false
+                    viewModel.assert(connId)
+                }) { Text("Assert") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAssertConfirm = false }) { Text("Cancel") }
+            },
         )
     }
 
