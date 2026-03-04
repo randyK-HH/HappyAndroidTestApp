@@ -125,6 +125,9 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
     val scanErrorMessage: StateFlow<String?> = _scanErrorMessage
     private var scanErrorClearJob: Job? = null
 
+    // Track connections that entered RECONNECTING (survives intermediate states)
+    private val reconnectingConnIds = mutableSetOf<Int>()
+
     // Auto-clear timers for command status
     private val statusClearJobs = mutableMapOf<Int, Job>()
 
@@ -549,7 +552,6 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
             is HpyEvent.StateChanged -> {
                 val wasDownloading = _connectedRings.value[event.connId.value]?.isDownloading == true
                 val wasFwUpdating = _connectedRings.value[event.connId.value]?.isFwUpdating == true
-                val wasReconnecting = _connectedRings.value[event.connId.value]?.isReconnecting == true
                 val dlState = when (event.state) {
                     HpyConnectionState.DOWNLOADING -> "Downloading"
                     HpyConnectionState.WAITING -> "Waiting"
@@ -581,18 +583,22 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                 if ((wasDownloading && !isNowDownloading) || (wasFwUpdating && !isNowFwUpdating)) {
                     releaseDownloadWakeLock()
                 }
+                if (reconnecting) {
+                    reconnectingConnIds.add(event.connId.value)
+                }
                 if (event.state == HpyConnectionState.READY) {
                     startRssiPolling(event.connId)
-                }
-                if (wasReconnecting && event.state == HpyConnectionState.READY) {
-                    val counts = _reconnectionCounts.value.toMutableMap()
-                    counts[event.connId.value] = (counts[event.connId.value] ?: 0) + 1
-                    _reconnectionCounts.value = counts
+                    if (reconnectingConnIds.remove(event.connId.value)) {
+                        val counts = _reconnectionCounts.value.toMutableMap()
+                        counts[event.connId.value] = (counts[event.connId.value] ?: 0) + 1
+                        _reconnectionCounts.value = counts
+                    }
                 }
                 val retryStr = if (event.retryCount > 0) " (retry ${event.retryCount}/64)" else ""
                 addLog(event.connId, "State -> ${event.state}$retryStr")
                 // Auto-remove ring after reconnection failure
                 if (event.state == HpyConnectionState.DISCONNECTED) {
+                    reconnectingConnIds.remove(event.connId.value)
                     stopRssiPolling(event.connId)
                     viewModelScope.launch {
                         delay(2000)
