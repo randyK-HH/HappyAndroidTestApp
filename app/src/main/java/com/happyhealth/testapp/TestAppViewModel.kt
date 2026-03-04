@@ -102,6 +102,13 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
     private val _faultCounts = MutableStateFlow<Map<Int, Int>>(emptyMap())
     val faultCounts: StateFlow<Map<Int, Int>> = _faultCounts
 
+    private val _ncfCounts = MutableStateFlow<Map<Int, Int>>(emptyMap())
+    val ncfCounts: StateFlow<Map<Int, Int>> = _ncfCounts
+    private val _retryCounts = MutableStateFlow<Map<Int, Int>>(emptyMap())
+    val retryCounts: StateFlow<Map<Int, Int>> = _retryCounts
+    private val _reconnectionCounts = MutableStateFlow<Map<Int, Int>>(emptyMap())
+    val reconnectionCounts: StateFlow<Map<Int, Int>> = _reconnectionCounts
+
     // RSSI pre-flight check
     private val pendingRssiAction = mutableMapOf<Int, String>()
     private val _rssiAlertConnId = MutableStateFlow<ConnectionId?>(null)
@@ -185,6 +192,9 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         fwImageBytesMap.remove(connId.value)
         _fwImageInfoMap.value = _fwImageInfoMap.value - connId.value
         _faultCounts.value = _faultCounts.value - connId.value
+        _ncfCounts.value = _ncfCounts.value - connId.value
+        _retryCounts.value = _retryCounts.value - connId.value
+        _reconnectionCounts.value = _reconnectionCounts.value - connId.value
         api.disconnect(connId)
         _connectedRings.value = _connectedRings.value - connId.value
     }
@@ -539,6 +549,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
             is HpyEvent.StateChanged -> {
                 val wasDownloading = _connectedRings.value[event.connId.value]?.isDownloading == true
                 val wasFwUpdating = _connectedRings.value[event.connId.value]?.isFwUpdating == true
+                val wasReconnecting = _connectedRings.value[event.connId.value]?.isReconnecting == true
                 val dlState = when (event.state) {
                     HpyConnectionState.DOWNLOADING -> "Downloading"
                     HpyConnectionState.WAITING -> "Waiting"
@@ -572,6 +583,11 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                 }
                 if (event.state == HpyConnectionState.READY) {
                     startRssiPolling(event.connId)
+                }
+                if (wasReconnecting && event.state == HpyConnectionState.READY) {
+                    val counts = _reconnectionCounts.value.toMutableMap()
+                    counts[event.connId.value] = (counts[event.connId.value] ?: 0) + 1
+                    _reconnectionCounts.value = counts
                 }
                 val retryStr = if (event.retryCount > 0) " (retry ${event.retryCount}/64)" else ""
                 addLog(event.connId, "State -> ${event.state}$retryStr")
@@ -663,6 +679,16 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                 val retryStr = if (event.retryCount > 0) ", retries=${event.retryCount}" else ""
                 val ncfStr = if (event.ncfCount > 0) ", NCF=${event.ncfCount}" else ""
                 addLog(event.connId, "DownloadBatch: ${event.framesInBatch} frames, CRC=${event.crcValid}, $throughput, ${event.transport}$rssiStr$retryStr$ncfStr")
+                if (event.ncfCount > 0) {
+                    val counts = _ncfCounts.value.toMutableMap()
+                    counts[event.connId.value] = (counts[event.connId.value] ?: 0) + event.ncfCount
+                    _ncfCounts.value = counts
+                }
+                if (event.retryCount > 0) {
+                    val counts = _retryCounts.value.toMutableMap()
+                    counts[event.connId.value] = (counts[event.connId.value] ?: 0) + 1
+                    _retryCounts.value = counts
+                }
             }
             is HpyEvent.DownloadProgress -> {
                 updateRing(event.connId) {

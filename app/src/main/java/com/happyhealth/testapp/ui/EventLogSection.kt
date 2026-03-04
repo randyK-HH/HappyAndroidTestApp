@@ -40,6 +40,12 @@ fun EventLogSection(
     val logs = connectionLogs[connId.value] ?: emptyList()
     val faultCounts by viewModel.faultCounts.collectAsState()
     val faultCount = faultCounts[connId.value] ?: 0
+    val ncfCounts by viewModel.ncfCounts.collectAsState()
+    val ncfCount = ncfCounts[connId.value] ?: 0
+    val retryCounts by viewModel.retryCounts.collectAsState()
+    val retryCount = retryCounts[connId.value] ?: 0
+    val reconnectionCounts by viewModel.reconnectionCounts.collectAsState()
+    val reconCount = reconnectionCounts[connId.value] ?: 0
     val listState = rememberLazyListState()
 
     // Auto-scroll to bottom when new entries arrive (keyed on last entry id,
@@ -63,6 +69,23 @@ fun EventLogSection(
             color = if (faultCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(vertical = 4.dp),
         )
+        if (faultCount > 0 || ncfCount > 0 || retryCount > 0 || reconCount > 0) {
+            val parts = buildList {
+                if (faultCount > 0) add("ERR: $faultCount")
+                if (ncfCount > 0) add("NCF: $ncfCount")
+                if (retryCount > 0) add("RETRY: $retryCount")
+                if (reconCount > 0) add("RECON: $reconCount")
+            }
+            Text(
+                text = "[${parts.joinToString(", ")}]",
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                ),
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(vertical = 2.dp),
+            )
+        }
         HorizontalDivider()
         Spacer(modifier = Modifier.height(4.dp))
 
@@ -104,6 +127,12 @@ fun FullScreenEventLog(
     val logs = connectionLogs[connId.value] ?: emptyList()
     val faultCounts by viewModel.faultCounts.collectAsState()
     val faultCount = faultCounts[connId.value] ?: 0
+    val ncfCounts by viewModel.ncfCounts.collectAsState()
+    val ncfCount = ncfCounts[connId.value] ?: 0
+    val retryCounts by viewModel.retryCounts.collectAsState()
+    val retryCount = retryCounts[connId.value] ?: 0
+    val reconnectionCounts by viewModel.reconnectionCounts.collectAsState()
+    val reconCount = reconnectionCounts[connId.value] ?: 0
     val listState = rememberLazyListState()
     var showShareDialog by remember { mutableStateOf(false) }
 
@@ -163,6 +192,23 @@ fun FullScreenEventLog(
                     )
                 }
             }
+        }
+        if (faultCount > 0 || ncfCount > 0 || retryCount > 0 || reconCount > 0) {
+            val parts = buildList {
+                if (faultCount > 0) add("ERR: $faultCount")
+                if (ncfCount > 0) add("NCF: $ncfCount")
+                if (retryCount > 0) add("RETRY: $retryCount")
+                if (reconCount > 0) add("RECON: $reconCount")
+            }
+            Text(
+                text = "[${parts.joinToString(", ")}]",
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                ),
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            )
         }
         HorizontalDivider()
         Spacer(modifier = Modifier.height(4.dp))
