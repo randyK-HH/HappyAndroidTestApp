@@ -882,7 +882,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         if (connId.value >= 0) {
             val logs = _connectionLogs.value.toMutableMap()
             val connLogs = (logs[connId.value] ?: emptyList()) + entry
-            logs[connId.value] = connLogs.takeLast(1000)
+            logs[connId.value] = connLogs.takeLast(10000)
             _connectionLogs.value = logs
         }
     }
