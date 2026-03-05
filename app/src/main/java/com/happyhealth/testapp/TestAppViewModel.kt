@@ -97,6 +97,8 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
     // Per-connection event logs
     private val _connectionLogs = MutableStateFlow<Map<Int, List<LogEntry>>>(emptyMap())
     val connectionLogs: StateFlow<Map<Int, List<LogEntry>>> = _connectionLogs
+    private val logDeviceSerial = mutableMapOf<Int, String>()  // connId → serial of device in log buffer
+    private val logDeviceName = mutableMapOf<Int, String>()     // connId → name for folder when saving
 
     // Per-connection fault counter (only reset on manual disconnect)
     private val _faultCounts = MutableStateFlow<Map<Int, Int>>(emptyMap())
@@ -194,6 +196,8 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         frameWriters.remove(connId.value)?.destroy()
         fwImageBytesMap.remove(connId.value)
         _fwImageInfoMap.value = _fwImageInfoMap.value - connId.value
+        logDeviceSerial.remove(connId.value)
+        logDeviceName.remove(connId.value)
         _faultCounts.value = _faultCounts.value - connId.value
         _ncfCounts.value = _ncfCounts.value - connId.value
         _retryCounts.value = _retryCounts.value - connId.value
@@ -491,13 +495,17 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
     // ---- Event Log Files ----
 
     fun saveEventLog(connId: ConnectionId): String? {
+        val deviceName = _connectedRings.value[connId.value]?.name ?: logDeviceName[connId.value]
+        return saveEventLogForDevice(connId, deviceName)
+    }
+
+    private fun saveEventLogForDevice(connId: ConnectionId, deviceName: String?): String? {
         val logs = _connectionLogs.value[connId.value] ?: return null
         if (logs.isEmpty()) return null
 
-        val deviceId = _connectedRings.value[connId.value]?.name
         val baseDir = getApplication<Application>().getExternalFilesDir(null) ?: return null
-        val folder = if (deviceId != null) {
-            java.io.File(java.io.File(baseDir, "BLE_EVENT_LOGS"), deviceId)
+        val folder = if (deviceName != null) {
+            java.io.File(java.io.File(baseDir, "BLE_EVENT_LOGS"), deviceName)
         } else {
             java.io.File(baseDir, "BLE_EVENT_LOGS")
         }
@@ -517,7 +525,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
             }
         }
 
-        addLog(connId, "Event log saved: $fileName (${logs.size} entries)")
+        addLog(connId, "Event log auto-saved: $fileName (${logs.size} entries)")
         return file.absolutePath
     }
 
@@ -607,6 +615,22 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                 }
             }
             is HpyEvent.DeviceInfo -> {
+                // Auto-save and clear log if device changed on this slot
+                val oldSerial = logDeviceSerial[event.connId.value]
+                if (oldSerial != null && oldSerial != event.info.serialNumber) {
+                    val logs = _connectionLogs.value[event.connId.value]
+                    if (!logs.isNullOrEmpty()) {
+                        val oldName = logDeviceName[event.connId.value]
+                        saveEventLogForDevice(event.connId, oldName)
+                        val cleared = _connectionLogs.value.toMutableMap()
+                        cleared[event.connId.value] = emptyList()
+                        _connectionLogs.value = cleared
+                        _faultCounts.value = _faultCounts.value + (event.connId.value to 0)
+                    }
+                }
+                logDeviceSerial[event.connId.value] = event.info.serialNumber
+                logDeviceName[event.connId.value] = _connectedRings.value[event.connId.value]?.name ?: ""
+
                 updateRing(event.connId) {
                     it.copy(deviceInfo = event.info)
                 }
