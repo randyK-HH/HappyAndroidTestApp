@@ -41,6 +41,8 @@ fun EventLogSection(
     val logs = connectionLogs[connId.value] ?: emptyList()
     val faultCounts by viewModel.faultCounts.collectAsState()
     val faultCount = faultCounts[connId.value] ?: 0
+    val ncfCounts by viewModel.ncfCounts.collectAsState()
+    val ncfCount = ncfCounts[connId.value] ?: 0
     val listState = rememberLazyListState()
 
     // Auto-scroll to bottom when new entries arrive (keyed on last entry id,
@@ -52,16 +54,12 @@ fun EventLogSection(
         }
     }
 
-    val title = if (faultCount == 0) "Event Log"
-        else if (faultCount == 1) "Event Log  (1 fault)"
-        else "Event Log  ($faultCount faults)"
-
     Column(modifier = modifier) {
         Text(
-            title,
+            "Event Log",
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold,
-            color = if (faultCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+            color = if (faultCount > 0 || ncfCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(vertical = 4.dp),
         )
         HorizontalDivider()
@@ -121,10 +119,6 @@ fun FullScreenEventLog(
         }
     }
 
-    val title = if (faultCount == 0) "Event Log"
-        else if (faultCount == 1) "Event Log  (1 fault)"
-        else "Event Log  ($faultCount faults)"
-
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -136,10 +130,10 @@ fun FullScreenEventLog(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                title,
+                "Event Log",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
-                color = if (faultCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                color = if (faultCount > 0 || ncfCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
             )
             Row {
                 IconButton(
@@ -234,7 +228,7 @@ private fun ShareEventLogDialog(viewModel: TestAppViewModel, deviceId: String?, 
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Event Logs${deviceId?.let { " — $it" } ?: ""}") },
+        title = { Text("Event Logs${deviceId?.let { " (${it.lowercase()})" } ?: ""}") },
         text = {
             if (files.isEmpty()) {
                 Text("No saved event logs found.", style = MaterialTheme.typography.bodyMedium)

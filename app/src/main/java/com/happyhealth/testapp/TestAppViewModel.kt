@@ -514,7 +514,8 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         val timeFormat = java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US)
         val fileTimestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US)
             .format(java.util.Date())
-        val fileName = "event_log_${fileTimestamp}.txt"
+        val prefix = deviceName?.lowercase()?.let { "${it}_" } ?: ""
+        val fileName = "${prefix}event_log_${fileTimestamp}.txt"
         val file = java.io.File(folder, fileName)
 
         file.bufferedWriter().use { writer ->

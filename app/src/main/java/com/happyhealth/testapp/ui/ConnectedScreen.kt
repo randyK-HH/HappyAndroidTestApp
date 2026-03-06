@@ -4,6 +4,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -77,6 +78,10 @@ fun ConnectedScreen(
 
         HorizontalPager(
             state = pagerState,
+            flingBehavior = PagerDefaults.flingBehavior(
+                state = pagerState,
+                snapPositionalThreshold = 0.2f,
+            ),
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues),
@@ -1108,7 +1113,7 @@ private fun ShareHpy2Dialog(viewModel: TestAppViewModel, deviceId: String, onDis
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("HPY2 Files — $deviceId") },
+        title = { Text("HPY2 Files (${deviceId.lowercase()})") },
         text = {
             if (files.isEmpty()) {
                 Text("No .hpy2 files found.", style = MaterialTheme.typography.bodyMedium)
