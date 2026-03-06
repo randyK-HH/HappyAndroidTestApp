@@ -1137,6 +1137,7 @@ private fun ShareHpy2Dialog(viewModel: TestAppViewModel, deviceId: String, onDis
                                     onDismiss()
                                 },
                                 modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(4.dp),
                                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
                             ) {
                                 Column(modifier = Modifier.fillMaxWidth()) {
