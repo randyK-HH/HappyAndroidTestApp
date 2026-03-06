@@ -3,6 +3,7 @@ package com.happyhealth.testapp
 import android.app.Application
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.bluetooth.BluetoothDevice
 import android.net.Uri
 import android.os.PowerManager
@@ -28,7 +29,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import java.io.File
 
 data class ConnectedRingInfo(
     val connId: ConnectionId,
@@ -122,6 +126,14 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
     private val rssiPollingJobs = mutableMapOf<Int, Job>()
     private val lastLoggedRssi = mutableMapOf<Int, Int>()
 
+    // ADB-driven navigation: when set, UI navigates to the connection screen
+    private val _adbNavigateToConn = MutableStateFlow<ConnectionId?>(null)
+    val adbNavigateToConn: StateFlow<ConnectionId?> = _adbNavigateToConn
+
+    fun clearAdbNavigation() {
+        _adbNavigateToConn.value = null
+    }
+
     // Scan error message (e.g. notification subscribe timeout)
     private val _scanErrorMessage = MutableStateFlow<String?>(null)
     val scanErrorMessage: StateFlow<String?> = _scanErrorMessage
@@ -154,6 +166,8 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
     val discoveredDevices: StateFlow<List<ScannedDeviceInfo>>
     val isScanning: StateFlow<Boolean>
 
+    private val testCommandReceiver: TestCommandReceiver
+
     init {
         api = createHappyPlatformApi(shim, AndroidTimeSource())
         shim.callback = api.shimCallback
@@ -164,6 +178,13 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             api.events.collect { event -> handleEvent(event) }
         }
+
+        // Register ADB test command receiver
+        testCommandReceiver = TestCommandReceiver(this)
+        val filter = IntentFilter(TestCommandReceiver.ACTION)
+        getApplication<Application>().registerReceiver(
+            testCommandReceiver, filter, Context.RECEIVER_EXPORTED
+        )
     }
 
     fun toggleScan() {
@@ -922,7 +943,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         _connectedRings.value = current + (connId.value to transform(existing))
     }
 
-    private fun addLog(connId: ConnectionId, message: String) {
+    internal fun addLog(connId: ConnectionId, message: String) {
         val entry = LogEntry(connId = connId, message = message)
 
         // Track faults
@@ -944,8 +965,72 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    // ---- ADB Automation Helpers ----
+
+    fun connectByName(deviceName: String) {
+        // Check if already in discovered devices
+        val existing = discoveredDevices.value.find {
+            it.name.equals(deviceName, ignoreCase = true)
+        }
+        if (existing != null) {
+            addLog(ConnectionId(-1), "[ADB] Found $deviceName in scan results, connecting...")
+            connect(existing)
+            // Navigate UI to the new connection
+            val connId = _connectedRings.value.keys.maxOrNull()
+            if (connId != null) _adbNavigateToConn.value = ConnectionId(connId)
+            return
+        }
+
+        // Start scanning and wait for the device
+        if (!isScanning.value) {
+            toggleScan()
+        }
+        addLog(ConnectionId(-1), "[ADB] Scanning for $deviceName (15s timeout)...")
+
+        viewModelScope.launch {
+            val device = withTimeoutOrNull(15_000L) {
+                discoveredDevices.first { devices ->
+                    devices.any { it.name.equals(deviceName, ignoreCase = true) }
+                }.first { it.name.equals(deviceName, ignoreCase = true) }
+            }
+            if (device != null) {
+                addLog(ConnectionId(-1), "[ADB] Found $deviceName, connecting...")
+                connect(device)
+                // Navigate UI to the new connection
+                val connId = _connectedRings.value.keys.maxOrNull()
+                if (connId != null) _adbNavigateToConn.value = ConnectionId(connId)
+            } else {
+                addLog(ConnectionId(-1), "[ADB] ERROR: Timed out waiting for $deviceName")
+            }
+        }
+    }
+
+    fun loadFwImageFromPath(path: String, connId: ConnectionId) {
+        val file = File(path)
+        val bytes = try {
+            file.readBytes()
+        } catch (e: Exception) {
+            addLog(connId, "[ADB] ERROR: Cannot read $path: ${e.message}")
+            return
+        }
+        val reader = FwImageReader()
+        val status = reader.readAndValidateBytes(bytes, file.name)
+        if (status != FwImageStatus.OK) {
+            addLog(connId, "[ADB] ERROR: Image validation failed: $status")
+            return
+        }
+        fwImageBytesMap[connId.value] = reader.imageBytes
+        _fwImageInfoMap.value = _fwImageInfoMap.value + (connId.value to reader.imageInfo!!)
+        addLog(connId, "[ADB] FW image loaded: ${reader.imageInfo!!.version} (${bytes.size} bytes)")
+    }
+
     override fun onCleared() {
         super.onCleared()
+        try {
+            getApplication<Application>().unregisterReceiver(testCommandReceiver)
+        } catch (_: IllegalArgumentException) {
+            // Already unregistered
+        }
         rssiPollingJobs.values.forEach { it.cancel() }
         rssiPollingJobs.clear()
         releaseDownloadWakeLock()

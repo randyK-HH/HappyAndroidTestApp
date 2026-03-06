@@ -64,6 +64,15 @@ class MainActivity : ComponentActivity() {
 fun AppContent(viewModel: TestAppViewModel = viewModel()) {
     var selectedConnId by remember { mutableStateOf<ConnectionId?>(null) }
 
+    // Observe ADB-driven navigation requests
+    val adbNavTarget by viewModel.adbNavigateToConn.collectAsState()
+    LaunchedEffect(adbNavTarget) {
+        adbNavTarget?.let {
+            selectedConnId = it
+            viewModel.clearAdbNavigation()
+        }
+    }
+
     if (selectedConnId != null) {
         ConnectedScreen(
             connId = selectedConnId!!,
