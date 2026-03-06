@@ -1257,6 +1257,7 @@ private fun FwUpdateSection(
     val context = LocalContext.current
     val fwImageMap by viewModel.fwImageInfoMap.collectAsState()
     val fwImage = fwImageMap[connId.value]
+    val canFwUpdate = isReady || ring.state == HpyConnectionState.CONNECTED_LIMITED
     val isFwUpdating = ring.isFwUpdating ||
         ring.state == HpyConnectionState.FW_UPDATING ||
         ring.state == HpyConnectionState.FW_UPDATE_REBOOTING
@@ -1445,7 +1446,7 @@ private fun FwUpdateSection(
         } else {
             Button(
                 onClick = { viewModel.requestStartFwUpdate(connId) },
-                enabled = fwImage != null && isReady,
+                enabled = fwImage != null && canFwUpdate,
                 modifier = Modifier.weight(1f).height(gridRowHeight),
                 shape = gridShape,
                 contentPadding = gridContentPadding,
