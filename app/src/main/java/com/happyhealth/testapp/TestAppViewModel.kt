@@ -143,6 +143,9 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
     // Auto-clear timers for command status
     private val statusClearJobs = mutableMapOf<Int, Job>()
 
+    // Track fc of first frame in current logging interval (from actual frame data)
+    private val intervalStartFc = mutableMapOf<Int, Int>()
+
     // Per-connection frame writers for HPY2 file output
     private val frameWriters = mutableMapOf<Int, FrameWriter>()
 
@@ -212,6 +215,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
     fun disconnect(connId: ConnectionId) {
         stopRssiPolling(connId)
         lastLoggedRssi.remove(connId.value)
+        intervalStartFc.remove(connId.value)
         frameWriters.remove(connId.value)?.destroy()
         fwImageBytesMap.remove(connId.value)
         _fwImageInfoMap.value = _fwImageInfoMap.value - connId.value
@@ -318,6 +322,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
 
     fun stopDownload(connId: ConnectionId) {
         api.stopDownload(connId)
+        intervalStartFc.remove(connId.value)
         val writer = frameWriters.remove(connId.value)
         if (writer != null) {
             addLog(connId, "HPY2 file closed: ${writer.totalFramesWritten} frames written")
@@ -751,8 +756,13 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                         downloadTransport = event.transport,
                     )
                 }
+                if (intervalStartFc[event.connId.value] == null) {
+                    intervalStartFc[event.connId.value] = event.currentFc
+                }
                 if (event.sessionFramesDownloaded % 8 == 0 || event.sessionFramesDownloaded == event.sessionFramesTotal) {
-                    addLog(event.connId, "DownloadProgress: ${event.sessionFramesDownloaded}/${event.sessionFramesTotal} (${event.transport})")
+                    val startFc = intervalStartFc.remove(event.connId.value) ?: event.currentFc
+                    val rebootFlag = if (event.currentFc < startFc) " *" else ""
+                    addLog(event.connId, "DownloadProgress: ${event.sessionFramesDownloaded}/${event.sessionFramesTotal} (${event.transport}) (fc:${startFc}-${event.currentFc})$rebootFlag")
                 }
             }
             is HpyEvent.DownloadFrame -> {
