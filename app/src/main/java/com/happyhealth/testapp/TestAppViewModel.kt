@@ -47,8 +47,6 @@ data class ConnectedRingInfo(
     val isDownloading: Boolean = false,
     val downloadProgress: Int = 0,
     val downloadTotal: Int = 0,
-    val downloadProgressOffset: Int = 0,
-    val downloadRawProgress: Int = 0,
     val sessionDownloadProgress: Int = 0,
     val sessionDownloadTotal: Int = 0,
     val downloadTransport: String = "",
@@ -307,7 +305,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         writer.ensureFileOpen(deviceId)
         frameWriters[connId.value] = writer
         updateRing(connId) {
-            it.copy(downloadProgress = 0, downloadTotal = 0, downloadProgressOffset = 0, downloadRawProgress = 0)
+            it.copy(downloadProgress = 0, downloadTotal = 0)
         }
         addLog(connId, "HPY2 file: ${writer.filePath}")
         acquireDownloadWakeLock()
@@ -744,16 +742,10 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
             }
             is HpyEvent.DownloadProgress -> {
                 updateRing(event.connId) {
-                    val offset = if (event.framesDownloaded < it.downloadRawProgress) {
-                        it.downloadProgressOffset + it.downloadRawProgress
-                    } else {
-                        it.downloadProgressOffset
-                    }
+                    // framesDownloaded/framesTotal are already cumulative from the library
                     it.copy(
-                        downloadProgress = offset + event.framesDownloaded,
-                        downloadTotal = offset + event.framesTotal,
-                        downloadProgressOffset = offset,
-                        downloadRawProgress = event.framesDownloaded,
+                        downloadProgress = event.framesDownloaded,
+                        downloadTotal = event.framesTotal,
                         sessionDownloadProgress = event.sessionFramesDownloaded,
                         sessionDownloadTotal = event.sessionFramesTotal,
                         downloadTransport = event.transport,
