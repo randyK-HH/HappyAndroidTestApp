@@ -72,14 +72,15 @@ fun MemfaultReleasesDialog(
                     val listState = rememberLazyListState()
 
                     // Auto-pagination: trigger load when near end
-                    val shouldLoadMore by remember {
+                    val lastVisibleIndex by remember {
                         derivedStateOf {
-                            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-                            lastVisible >= releases.size - 5 && hasMore && !isLoading
+                            listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
                         }
                     }
-                    LaunchedEffect(shouldLoadMore) {
-                        if (shouldLoadMore) onLoadMore()
+                    LaunchedEffect(lastVisibleIndex, releases.size, hasMore, isLoading) {
+                        if (lastVisibleIndex >= releases.size - 5 && hasMore && !isLoading) {
+                            onLoadMore()
+                        }
                     }
 
                     Column(modifier = Modifier.fillMaxWidth()) {
