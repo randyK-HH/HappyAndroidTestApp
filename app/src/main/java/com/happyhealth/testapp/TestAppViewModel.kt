@@ -19,11 +19,13 @@ import com.happyhealth.bleplatform.internal.model.DaqConfigData
 import com.happyhealth.bleplatform.internal.model.ScannedDeviceInfo
 import com.happyhealth.bleplatform.internal.shim.AndroidBleShim
 import com.happyhealth.bleplatform.internal.shim.AndroidTimeSource
+import com.happyhealth.testapp.data.AppSettings
 import com.happyhealth.testapp.data.FwImageInfo
 import com.happyhealth.testapp.data.FwImageReader
 import com.happyhealth.testapp.data.FwImageStatus
 import com.happyhealth.testapp.data.MemfaultClient
 import com.happyhealth.testapp.data.MemfaultRelease
+import com.happyhealth.testapp.data.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -83,9 +85,12 @@ data class LogEntry(
 
 class TestAppViewModel(application: Application) : AndroidViewModel(application) {
 
-    companion object {
-        const val MIN_RSSI = -80
-    }
+    private val settingsRepo = SettingsRepository(application)
+
+    private val _globalSettings = MutableStateFlow(settingsRepo.loadGlobalSettings())
+    val globalSettings: StateFlow<AppSettings> = _globalSettings
+
+    private val minRssi: Int get() = _globalSettings.value.minRssi
 
     private val shim = AndroidBleShim(application)
     private val api: HappyPlatformApi
@@ -170,7 +175,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
     private val testCommandReceiver: TestCommandReceiver
 
     init {
-        api = createHappyPlatformApi(shim, AndroidTimeSource())
+        api = createHappyPlatformApi(shim, AndroidTimeSource(), _globalSettings.value.toHpyConfig())
         shim.callback = api.shimCallback
 
         discoveredDevices = api.discoveredDevices
@@ -209,6 +214,11 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                 ringColor = device.ringColor,
                 lastRssi = device.rssi,
             ))
+            // Apply per-ring overrides if saved
+            val ringOverrides = settingsRepo.loadRingOverrides(device.address)
+            if (ringOverrides != null) {
+                api.updateConnectionConfig(connId, ringOverrides.toHpyConfig())
+            }
         }
     }
 
@@ -580,6 +590,28 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    // ---- Settings ----
+
+    fun updateGlobalSettings(settings: AppSettings) {
+        _globalSettings.value = settings
+        settingsRepo.saveGlobalSettings(settings)
+        api.updateConfig(settings.toHpyConfig())
+    }
+
+    fun getRingSettings(address: String): AppSettings {
+        return settingsRepo.loadRingOverrides(address) ?: _globalSettings.value
+    }
+
+    fun updateRingSettings(connId: ConnectionId, address: String, settings: AppSettings) {
+        settingsRepo.saveRingOverrides(address, settings)
+        api.updateConnectionConfig(connId, settings.toHpyConfig())
+    }
+
+    fun resetRingSettings(connId: ConnectionId, address: String) {
+        settingsRepo.clearRingOverrides(address)
+        api.updateConnectionConfig(connId, _globalSettings.value.toHpyConfig())
+    }
+
     private fun handleEvent(event: HpyEvent) {
         when (event) {
             is HpyEvent.StateChanged -> {
@@ -627,7 +659,10 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                         _reconnectionCounts.value = counts
                     }
                 }
-                val retryStr = if (event.retryCount > 0) " (retry ${event.retryCount}/64)" else ""
+                val ringAddr = _connectedRings.value[event.connId.value]?.address
+                val maxAttempts = if (ringAddr != null) getRingSettings(ringAddr).reconnectMaxAttempts else _globalSettings.value.reconnectMaxAttempts
+                val maxLabel = if (maxAttempts == Int.MAX_VALUE) "Unlimited" else maxAttempts.toString()
+                val retryStr = if (event.retryCount > 0) " (retry ${event.retryCount}/$maxLabel)" else ""
                 addLog(event.connId, "State -> ${event.state}$retryStr")
                 // Auto-remove ring after reconnection failure
                 if (event.state == HpyConnectionState.DISCONNECTED) {
@@ -823,11 +858,13 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
             }
             is HpyEvent.RssiRead -> {
                 updateRing(event.connId) { it.copy(lastRssi = event.rssi) }
+                val ringAddress = _connectedRings.value[event.connId.value]?.address
+                val effectiveMinRssi = if (ringAddress != null) getRingSettings(ringAddress).minRssi else minRssi
                 val action = pendingRssiAction.remove(event.connId.value)
                 if (action == "download") {
                     addLog(event.connId, "RSSI: ${event.rssi} dBm")
                     lastLoggedRssi[event.connId.value] = event.rssi
-                    if (event.rssi > MIN_RSSI) {
+                    if (event.rssi > effectiveMinRssi) {
                         proceedStartDownload(event.connId)
                     } else {
                         _rssiAlertConnId.value = event.connId
@@ -836,7 +873,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                 } else if (action == "fwUpdate") {
                     addLog(event.connId, "RSSI: ${event.rssi} dBm")
                     lastLoggedRssi[event.connId.value] = event.rssi
-                    if (event.rssi > MIN_RSSI) {
+                    if (event.rssi > effectiveMinRssi) {
                         proceedStartFwUpdate(event.connId)
                     } else {
                         _rssiAlertConnId.value = event.connId
@@ -845,19 +882,19 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                 } else {
                     // From library auto-check or 10s poll
                     val ring = _connectedRings.value[event.connId.value]
-                    if (ring?.state == HpyConnectionState.WAITING && event.rssi <= MIN_RSSI) {
+                    if (ring?.state == HpyConnectionState.WAITING && event.rssi <= effectiveMinRssi) {
                         updateRing(event.connId) { it.copy(rssiWarningValue = event.rssi) }
                     } else {
                         updateRing(event.connId) { it.copy(rssiWarningValue = null) }
                     }
                     val prev = lastLoggedRssi[event.connId.value]
-                    val crossedBelow = prev != null && prev > MIN_RSSI && event.rssi <= MIN_RSSI
-                    val crossedAbove = prev != null && prev <= MIN_RSSI && event.rssi > MIN_RSSI
+                    val crossedBelow = prev != null && prev > effectiveMinRssi && event.rssi <= effectiveMinRssi
+                    val crossedAbove = prev != null && prev <= effectiveMinRssi && event.rssi > effectiveMinRssi
                     val bigDelta = prev == null || kotlin.math.abs(event.rssi - prev) >= 10
                     if (crossedBelow || crossedAbove || bigDelta) {
                         val suffix = when {
-                            crossedBelow -> " (below threshold $MIN_RSSI dBm)"
-                            crossedAbove -> " (above threshold $MIN_RSSI dBm)"
+                            crossedBelow -> " (below threshold $effectiveMinRssi dBm)"
+                            crossedAbove -> " (above threshold $effectiveMinRssi dBm)"
                             else -> ""
                         }
                         addLog(event.connId, "RSSI: ${event.rssi} dBm$suffix")

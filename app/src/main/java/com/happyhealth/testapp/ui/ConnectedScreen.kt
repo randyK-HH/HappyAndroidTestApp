@@ -12,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -56,11 +57,27 @@ fun ConnectedScreen(
     var showShareDialog by remember { mutableStateOf(false) }
     var showSyncFrameDialog by remember { mutableStateOf(false) }
     var showAssertConfirm by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(ring.name, fontWeight = FontWeight.Bold) },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(ring.name, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        IconButton(
+                            onClick = { showSettings = true },
+                            modifier = Modifier.size(32.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.Settings,
+                                contentDescription = "Ring Settings",
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
@@ -106,11 +123,13 @@ fun ConnectedScreen(
                 HpyConnectionState.DISCONNECTED -> MaterialTheme.colorScheme.error
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
             }
+            val reconnectMax = viewModel.getRingSettings(ring.address).reconnectMaxAttempts
+            val reconnectMaxLabel = if (reconnectMax == Int.MAX_VALUE) "Unlimited" else reconnectMax.toString()
             val stateText = when {
                 ring.state == HpyConnectionState.RECONNECTING && ring.reconnectRetryCount > 0 ->
-                    "State: RECONNECTING (${ring.reconnectRetryCount}/64)"
+                    "State: RECONNECTING (${ring.reconnectRetryCount}/$reconnectMaxLabel)"
                 ring.state == HpyConnectionState.FW_UPDATE_REBOOTING && ring.reconnectRetryCount > 0 ->
-                    "State: FW_UPDATE_REBOOTING (${ring.reconnectRetryCount}/64)"
+                    "State: FW_UPDATE_REBOOTING (${ring.reconnectRetryCount}/$reconnectMaxLabel)"
                 else -> "State: ${ring.state}"
             }
             Text(
@@ -143,14 +162,20 @@ fun ConnectedScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            "Attempt ${ring.reconnectRetryCount} of 64",
+                            "Attempt ${ring.reconnectRetryCount} of $reconnectMaxLabel",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onErrorContainer,
                         )
                         Spacer(modifier = Modifier.height(6.dp))
+                        val progressFraction = if (reconnectMax == Int.MAX_VALUE) {
+                            // For unlimited: use 64 as visual denominator, clamped to 1.0
+                            (ring.reconnectRetryCount.toFloat() / 64f).coerceAtMost(1f)
+                        } else {
+                            ring.reconnectRetryCount.toFloat() / reconnectMax.toFloat()
+                        }
                         @Suppress("DEPRECATION")
                         LinearProgressIndicator(
-                            progress = ring.reconnectRetryCount.toFloat() / 64f,
+                            progress = progressFraction,
                             modifier = Modifier.fillMaxWidth(),
                             color = MaterialTheme.colorScheme.error,
                             trackColor = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.2f),
@@ -519,6 +544,18 @@ fun ConnectedScreen(
             dismissButton = {
                 TextButton(onClick = { showAssertConfirm = false }) { Text("Cancel") }
             },
+        )
+    }
+
+    // ---- Settings Bottom Sheet ----
+    if (showSettings) {
+        val ringSettings = viewModel.getRingSettings(ring.address)
+        SettingsBottomSheet(
+            settings = ringSettings,
+            isPerRing = true,
+            onSave = { viewModel.updateRingSettings(connId, ring.address, it) },
+            onResetToGlobal = { viewModel.resetRingSettings(connId, ring.address) },
+            onDismiss = { showSettings = false },
         )
     }
 
