@@ -455,6 +455,11 @@ fun ConnectedScreen(
                     modifier = Modifier.weight(1f).height(gridRowHeight),
                     shape = gridShape,
                     contentPadding = gridContentPadding,
+                    colors = if (isDownloading) {
+                        ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    } else {
+                        ButtonDefaults.buttonColors()
+                    },
                 ) {
                     Text("Stop Download")
                 }

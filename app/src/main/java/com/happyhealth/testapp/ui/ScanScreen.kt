@@ -12,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.delay
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -40,6 +41,27 @@ fun ScanScreen(
     // Filter out devices that are already connected
     val connectedAddresses = connectedRings.values.map { it.address }.toSet()
     val unconnectedDevices = discovered.filter { it.address !in connectedAddresses }
+
+    // Throttled sort order — controls card ordering only, not the data displayed.
+    // Re-sorts every 3s tick or immediately when items are added/removed.
+    var sortTick by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(3000)
+            sortTick++
+        }
+    }
+    val connectedSortOrder = remember(connectedRings.size, sortTick) {
+        connectedRings.values
+            .sortedByDescending { it.lastRssi ?: Int.MIN_VALUE }
+            .map { it.connId.value }
+    }
+    val discoveredSortOrder = remember(unconnectedDevices.size, sortTick) {
+        unconnectedDevices
+            .sortedByDescending { it.rssi }
+            .map { it.address }
+    }
+    val discoveredByAddress = unconnectedDevices.associateBy { it.address }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Watermark background — logo + text centered
@@ -129,7 +151,8 @@ fun ScanScreen(
                         modifier = Modifier.padding(vertical = 8.dp),
                     )
                 }
-                items(connectedRings.values.toList(), key = { it.connId.value }) { ring ->
+                items(connectedSortOrder, key = { it }) { connIdValue ->
+                    val ring = connectedRings[connIdValue] ?: return@items
                     ConnectedRingCard(ring = ring, onClick = {
                         if (isScanning) viewModel.toggleScan()
                         onRingSelected(ring.connId)
@@ -183,7 +206,8 @@ fun ScanScreen(
                 }
             }
 
-            items(unconnectedDevices, key = { it.address }) { device ->
+            items(discoveredSortOrder, key = { it }) { address ->
+                val device = discoveredByAddress[address] ?: return@items
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
