@@ -764,17 +764,22 @@ private fun fwBuildAtLeast(fwVersion: String?, minBuild: Int): Boolean {
 }
 
 private fun modeMinBuild(mode: Int): Int = when (mode) {
-    0 -> Int.MAX_VALUE // not available
-    in 1..7 -> 12
-    in 8..11 -> 15
-    in 12..13 -> 16
-    in 14..16 -> 29
-    in 17..18 -> 22
-    in 19..20 -> 25
-    21 -> 32
-    in 22..23 -> 33
-    24 -> 35
-    in 25..26 -> 52
+    0 -> Int.MAX_VALUE           // All Sensors Off (not available)
+    1 -> 12                      // Nominal (No PPG)
+    2 -> Int.MAX_VALUE           // Nominal (No EDA, PPG) (not available)
+    in 3..7 -> 12                // Nominal+PPG IR, SPO2-50/100, HR-50/100
+    8 -> 15                      // HR - 200
+    in 9..10 -> 15               // IR - 200 - 1/2
+    11 -> 15                     // SPO2 - 200
+    12 -> 16                     // PTT - 100
+    13 -> 16                     // ACC - HI FREQ - LO RES
+    in 14..16 -> 29              // IR-400, G-400, R-400
+    in 17..18 -> 22              // ACC - Low Power 1/2
+    in 19..20 -> 25              // RGBIR - 50/100
+    21 -> 32                     // PTT - 200
+    in 22..23 -> 33              // ACC 52Hz - 8G/2G
+    24 -> 35                     // ACC - 104Hz - 8G
+    in 25..26 -> 52              // RGBIR-100 - ACC 104Hz - 8G/2G
     else -> Int.MAX_VALUE
 }
 
@@ -852,19 +857,29 @@ private fun DaqConfigureDialog(
     }
 
     @Composable
-    fun ConfigTextField(label: String, value: String, onValueChange: (String) -> Unit, enabled: Boolean) {
-        OutlinedTextField(
-            value = value,
-            onValueChange = { onValueChange(it.filter { c -> c.isDigit() }) },
-            label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-            enabled = enabled,
-            modifier = Modifier
-                .fillMaxWidth()
-                .alpha(if (enabled) 1f else disabledAlpha),
-            singleLine = true,
-            keyboardOptions = numKeyboard,
-            textStyle = small,
-        )
+    fun ConfigTextField(label: String, value: String, onValueChange: (String) -> Unit, enabled: Boolean, hint: String? = null) {
+        Column {
+            OutlinedTextField(
+                value = value,
+                onValueChange = { onValueChange(it.filter { c -> c.isDigit() }) },
+                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                enabled = enabled,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .alpha(if (enabled) 1f else disabledAlpha),
+                singleLine = true,
+                keyboardOptions = numKeyboard,
+                textStyle = small,
+            )
+            if (hint != null) {
+                Text(
+                    hint,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+                )
+            }
+        }
     }
 
     AlertDialog(
@@ -947,81 +962,89 @@ private fun DaqConfigureDialog(
                 // ---- Ambient Light ----
                 SectionLabel("Ambient Light")
                 ConfigSwitch("Enable", ambientLightEn, { ambientLightEn = it }, fwBuildAtLeast(fwVersion, 12))
-                ConfigTextField("Period (ms)", ambientLightPeriodMs, { ambientLightPeriodMs = it }, fwBuildAtLeast(fwVersion, 12))
+                ConfigTextField("Period (ms)", ambientLightPeriodMs, { ambientLightPeriodMs = it }, fwBuildAtLeast(fwVersion, 12), hint = "Valid range: 1000-60000")
 
                 // ---- Temperature ----
                 SectionLabel("Temperature")
                 ConfigSwitch("Ambient Temp Enable", ambientTempEn, { ambientTempEn = it }, fwBuildAtLeast(fwVersion, 12))
                 // Ambient temp period is always disabled (tied to EDA)
-                OutlinedTextField(
-                    value = config.ambientTempPeriodMs.toString(),
-                    onValueChange = {},
-                    label = { Text("Ambient Temp Period (tied to EDA)", style = MaterialTheme.typography.labelSmall) },
-                    enabled = false,
-                    modifier = Modifier.fillMaxWidth().alpha(disabledAlpha),
-                    singleLine = true,
-                    textStyle = small,
-                )
+                Column {
+                    OutlinedTextField(
+                        value = config.ambientTempPeriodMs.toString(),
+                        onValueChange = {},
+                        label = { Text("Ambient Temp Period (ms)", style = MaterialTheme.typography.labelSmall) },
+                        enabled = false,
+                        modifier = Modifier.fillMaxWidth().alpha(disabledAlpha),
+                        singleLine = true,
+                        textStyle = small,
+                    )
+                    Text(
+                        "Tied to EDA sampling, not configurable",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+                    )
+                }
                 ConfigSwitch("Skin Temp Enable", skinTempEn, { skinTempEn = it }, fwBuildAtLeast(fwVersion, 12))
-                ConfigTextField("Skin Temp Period (ms)", skinTempPeriodMs, { skinTempPeriodMs = it }, fwBuildAtLeast(fwVersion, 12))
+                ConfigTextField("Skin Temp Period (ms)", skinTempPeriodMs, { skinTempPeriodMs = it }, fwBuildAtLeast(fwVersion, 12), hint = "Valid range: 1000-60000")
 
                 // ---- PPG ----
                 SectionLabel("PPG")
-                ConfigTextField("Cycle Time (ms)", ppgCycleTimeMs, { ppgCycleTimeMs = it }, fwBuildAtLeast(fwVersion, 12))
-                ConfigTextField("Interval Time (ms)", ppgIntervalTimeMs, { ppgIntervalTimeMs = it }, fwBuildAtLeast(fwVersion, 12))
-                ConfigSwitch("On During Sleep", ppgOnDuringSleepEn, { ppgOnDuringSleepEn = it }, fwBuildAtLeast(fwVersion, 12))
-                ConfigTextField("FSR (0-5)", ppgFsr, { ppgFsr = it }, fwBuildAtLeast(fwVersion, 16))
-                ConfigTextField("Stop Config (0-255)", ppgStopConfig, { ppgStopConfig = it }, fwBuildAtLeast(fwVersion, 41))
-                ConfigTextField("AGC Channel Config (0-255)", ppgAgcChannelConfig, { ppgAgcChannelConfig = it }, fwBuildAtLeast(fwVersion, 44))
+                ConfigTextField("Cycle Time (ms)", ppgCycleTimeMs, { ppgCycleTimeMs = it }, fwBuildAtLeast(fwVersion, 12), hint = "Periodic ON/OFF duration (1000-3600000)")
+                ConfigTextField("Interval Time (ms)", ppgIntervalTimeMs, { ppgIntervalTimeMs = it }, fwBuildAtLeast(fwVersion, 12), hint = "LED on duration within cycle (1000-3600000)")
+                ConfigSwitch("Enabled During Sleep Only (Off=Always On)", ppgOnDuringSleepEn, { ppgOnDuringSleepEn = it }, fwBuildAtLeast(fwVersion, 12))
+                ConfigTextField("Full Scale Range (FSR)", ppgFsr, { ppgFsr = it }, fwBuildAtLeast(fwVersion, 16), hint = "0=FW Default 4K, 1=4K, 2=8K, 3=16K, 4=32K, 5=Legacy 16K \u00B5A")
+                ConfigTextField("Stop Config", ppgStopConfig, { ppgStopConfig = it }, fwBuildAtLeast(fwVersion, 41), hint = "Bit 7: Enable. Bits 5:0: Battery SOC% at which PPG stops")
+                ConfigTextField("AGC Channel Config", ppgAgcChannelConfig, { ppgAgcChannelConfig = it }, fwBuildAtLeast(fwVersion, 44), hint = "Per channel (bits 7:6/5:4/3:2/1:0): 00=Off, 01=On")
 
                 // ---- Compressed Sensing ----
                 SectionLabel("Compressed Sensing")
-                ConfigSwitch("Enable", compressedSensingEn, { compressedSensingEn = it }, fwBuildAtLeast(fwVersion, 12))
-                ConfigTextField("CS Mode (0-3)", csMode, { csMode = it }, fwBuildAtLeast(fwVersion, 55))
+                ConfigSwitch("Enable (IR/Ambient Only)", compressedSensingEn, { compressedSensingEn = it }, fwBuildAtLeast(fwVersion, 12))
+                ConfigTextField("CS Mode", csMode, { csMode = it }, fwBuildAtLeast(fwVersion, 55), hint = "0=IR Only, 1=IR/R, 2=IR/G, 3=Reserved")
 
                 // ---- Multi-Spectral ----
                 SectionLabel("Multi-Spectral")
                 ConfigSwitch("Enable", multiSpectralEn, { multiSpectralEn = it }, fwBuildAtLeast(fwVersion, 12))
-                ConfigTextField("Period (ms)", multiSpectralPeriodMs, { multiSpectralPeriodMs = it }, fwBuildAtLeast(fwVersion, 16))
+                ConfigTextField("Sample Period (ms)", multiSpectralPeriodMs, { multiSpectralPeriodMs = it }, fwBuildAtLeast(fwVersion, 16), hint = "0=Sample on DAQ enable only, else 10000-3600000")
 
                 // ---- Superframe ----
                 SectionLabel("Superframe")
-                ConfigTextField("Max Latency (ms)", sfMaxLatencyMs, { sfMaxLatencyMs = it }, fwBuildAtLeast(fwVersion, 16))
+                ConfigTextField("Max Open Time (ms)", sfMaxLatencyMs, { sfMaxLatencyMs = it }, fwBuildAtLeast(fwVersion, 16), hint = "0=Disabled. Close superframe early if limit exceeded (2000-20000)")
 
                 // ---- EDA Sweep ----
                 SectionLabel("EDA Sweep")
                 ConfigSwitch("Enable", edaSweepEn, { edaSweepEn = it }, fwBuildAtLeast(fwVersion, 28))
-                ConfigTextField("Period (ms)", edaSweepPeriodMs, { edaSweepPeriodMs = it }, fwBuildAtLeast(fwVersion, 28))
-                ConfigTextField("Param Config (0-255)", edaSweepParamCfg, { edaSweepParamCfg = it }, fwBuildAtLeast(fwVersion, 69))
+                ConfigTextField("Period (ms)", edaSweepPeriodMs, { edaSweepPeriodMs = it }, fwBuildAtLeast(fwVersion, 28), hint = "0=Disabled, else 60000-3600000 (60s to 1hr)")
+                ConfigTextField("Param Config", edaSweepParamCfg, { edaSweepParamCfg = it }, fwBuildAtLeast(fwVersion, 69), hint = "Bit 7: Enable. Bit 6: AGC. Bit 5: Clear AGC every Nth sweep")
 
                 // ---- Accelerometer ----
                 SectionLabel("Accelerometer")
-                ConfigTextField("ULP Config (0-255)", accUlpEn, { accUlpEn = it }, fwBuildAtLeast(fwVersion, 22))
-                ConfigSwitch("2G During Sleep", acc2gDuringSleepEn, { acc2gDuringSleepEn = it }, fwBuildAtLeast(fwVersion, 36))
-                ConfigTextField("Inactivity Config (0-200)", accInactivityConfig, { accInactivityConfig = it }, fwBuildAtLeast(fwVersion, 40))
+                ConfigTextField("ULP Config", accUlpEn, { accUlpEn = it }, fwBuildAtLeast(fwVersion, 22), hint = "Bit 0: ULP enable. Bit 2: Reduced data mode during sleep")
+                ConfigSwitch("Increase Resolution During Sleep (8G\u21922G)", acc2gDuringSleepEn, { acc2gDuringSleepEn = it }, fwBuildAtLeast(fwVersion, 36))
+                ConfigTextField("Inactivity Config", accInactivityConfig, { accInactivityConfig = it }, fwBuildAtLeast(fwVersion, 40), hint = "Activity threshold for opp sampling trigger (0-200)")
 
                 // ---- Opportunistic Sampling ----
                 SectionLabel("Opportunistic Sampling")
                 ConfigSwitch("Enable", oppSampleEn, { oppSampleEn = it }, fwBuildAtLeast(fwVersion, 30))
-                ConfigTextField("Period (ms)", oppSamplePeriodMs, { oppSamplePeriodMs = it }, fwBuildAtLeast(fwVersion, 30))
-                ConfigTextField("On-Time (ms)", oppSampleOnTimeMs, { oppSampleOnTimeMs = it }, fwBuildAtLeast(fwVersion, 31))
-                ConfigTextField("Alt Mode (0-20)", oppSampleAltMode, { oppSampleAltMode = it }, fwBuildAtLeast(fwVersion, 30))
+                ConfigTextField("Period (ms)", oppSamplePeriodMs, { oppSamplePeriodMs = it }, fwBuildAtLeast(fwVersion, 30), hint = "0=Default (3h). Range: 1.8M-57.6M (30min to 16hr)")
+                ConfigTextField("ON Time (ms)", oppSampleOnTimeMs, { oppSampleOnTimeMs = it }, fwBuildAtLeast(fwVersion, 31), hint = "0=Default (60s). Range: 10000-3600000 (10s to 1hr)")
+                ConfigTextField("Sampling Mode", oppSampleAltMode, { oppSampleAltMode = it }, fwBuildAtLeast(fwVersion, 30), hint = "0=Use standard DAQ mode, 3-20=Alternate PPG mode")
 
                 // ---- Memfault ----
                 SectionLabel("Memfault")
-                ConfigTextField("Config (0-255)", memfaultConfig, { memfaultConfig = it }, fwBuildAtLeast(fwVersion, 30))
+                ConfigTextField("Access Config", memfaultConfig, { memfaultConfig = it }, fwBuildAtLeast(fwVersion, 30), hint = "Bit 7: Enable. Bits 4:3: Log level. Bit 2: Logs. Bit 1: Events. Bit 0: Core dumps")
 
                 // ---- Sleep ----
                 SectionLabel("Sleep")
-                ConfigTextField("Threshold Config (0-255)", sleepThreshConfig, { sleepThreshConfig = it }, fwBuildAtLeast(fwVersion, 45))
+                ConfigTextField("Threshold Config", sleepThreshConfig, { sleepThreshConfig = it }, fwBuildAtLeast(fwVersion, 45), hint = "Bit 7: Enable. Bit 6: Direction. Bit 5: Lock on entry. Bits 3:0: Multiplier power")
 
                 // ---- Reset ----
                 SectionLabel("Reset")
-                ConfigTextField("Reset Ring Cfg (0-50)", resetRingCfg, { resetRingCfg = it }, fwBuildAtLeast(fwVersion, 60))
+                ConfigTextField("Reset After N Days", resetRingCfg, { resetRingCfg = it }, fwBuildAtLeast(fwVersion, 60), hint = "0=Disabled. 1-50 days. Ring must be disconnected, DAQ off, SOC \u226550%")
 
                 // ---- Daily DAQ Mode ----
                 SectionLabel("Daily DAQ Mode")
-                ConfigTextField("Config (0-255)", dailyDaqModeCfg, { dailyDaqModeCfg = it }, fwBuildAtLeast(fwVersion, 76))
+                ConfigTextField("Config", dailyDaqModeCfg, { dailyDaqModeCfg = it }, fwBuildAtLeast(fwVersion, 76), hint = "Bit 7: Enable. Bit 6: Sample during sleep only")
             }
         },
         confirmButton = {
