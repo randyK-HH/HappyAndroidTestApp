@@ -37,6 +37,7 @@ class SettingsRepository(context: Context) {
         val defaults = AppSettings()
         return AppSettings(
             preferL2capDownload = prefs.getBoolean("${prefix}preferL2cap", defaults.preferL2capDownload),
+            use96MHzClock = prefs.getBoolean("${prefix}use96MHz", defaults.use96MHzClock),
             minRssi = prefs.getInt("${prefix}minRssi", defaults.minRssi),
             reconnectMaxAttempts = prefs.getInt("${prefix}reconnectMax", defaults.reconnectMaxAttempts),
             downloadBatchSize = prefs.getInt("${prefix}batchSize", defaults.downloadBatchSize),
@@ -53,6 +54,7 @@ class SettingsRepository(context: Context) {
     private fun saveTo(prefs: SharedPreferences, prefix: String, settings: AppSettings) {
         prefs.edit().apply {
             putBoolean("${prefix}preferL2cap", settings.preferL2capDownload)
+            putBoolean("${prefix}use96MHz", settings.use96MHzClock)
             putInt("${prefix}minRssi", settings.minRssi)
             putInt("${prefix}reconnectMax", settings.reconnectMaxAttempts)
             putInt("${prefix}batchSize", settings.downloadBatchSize)
@@ -69,7 +71,7 @@ class SettingsRepository(context: Context) {
 
     companion object {
         private val ALL_KEYS = listOf(
-            "preferL2cap", "minRssi", "reconnectMax", "batchSize",
+            "preferL2cap", "use96MHz", "minRssi", "reconnectMax", "batchSize",
             "stallTimeout", "failsafeInterval", "skipFingerDet",
             "memfaultInterval", "autoReconnect", "fwInterBlock", "fwDrainDelay",
         )

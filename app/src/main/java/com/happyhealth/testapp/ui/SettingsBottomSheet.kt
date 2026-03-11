@@ -50,6 +50,12 @@ fun SettingsBottomSheet(
                 checked = current.preferL2capDownload,
                 onCheckedChange = { current = current.copy(preferL2capDownload = it) },
             )
+            SettingsSwitch(
+                label = "L2CAP Clock",
+                description = if (current.use96MHzClock) "96 MHz" else "48 MHz",
+                checked = current.use96MHzClock,
+                onCheckedChange = { current = current.copy(use96MHzClock = it) },
+            )
 
             // ---- Scan / Connection ----
             SettingsSectionHeader("Scan / Connection")

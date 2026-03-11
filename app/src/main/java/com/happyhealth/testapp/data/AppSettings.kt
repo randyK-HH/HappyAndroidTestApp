@@ -4,6 +4,7 @@ import com.happyhealth.bleplatform.api.HpyConfig
 
 data class AppSettings(
     val preferL2capDownload: Boolean = true,
+    val use96MHzClock: Boolean = false,
     val minRssi: Int = -80,
     val reconnectMaxAttempts: Int = 64,
     val downloadBatchSize: Int = 64,
@@ -17,6 +18,7 @@ data class AppSettings(
 ) {
     fun toHpyConfig(): HpyConfig = HpyConfig(
         preferL2capDownload = preferL2capDownload,
+        l2capClockByte = if (use96MHzClock) 0x02 else 0x01,
         minRssi = minRssi,
         reconnectMaxAttempts = reconnectMaxAttempts,
         downloadBatchSize = downloadBatchSize,
