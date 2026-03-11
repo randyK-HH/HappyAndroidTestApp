@@ -70,6 +70,8 @@ data class ConnectedRingInfo(
     val syncFrameReboots: UInt = 0u,
     val rssiWarningValue: Int? = null,
     val lastRssi: Int? = null,
+    val throughputProgress: Int = 0,
+    val throughputTotal: Int = 0,
 )
 
 data class LogEntry(
@@ -310,6 +312,17 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
     fun enableShipMode(connId: ConnectionId, countdownMinutes: Int) {
         clearCommandStatus(connId)
         api.enableShipMode(connId, countdownMinutes)
+    }
+
+    fun getFgsn(connId: ConnectionId) {
+        clearCommandStatus(connId)
+        api.getFgsn(connId)
+    }
+
+    fun startThroughputTest(connId: ConnectionId, numPackets: Int) {
+        clearCommandStatus(connId)
+        updateRing(connId) { it.copy(throughputProgress = 0, throughputTotal = numPackets) }
+        api.startThroughputTest(connId, numPackets)
     }
 
     fun setConnectionParams(
@@ -750,8 +763,26 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                 addLog(event.connId, "SyncFrame: boot${event.reboots}:frame${event.frameCount}")
             }
             is HpyEvent.CommandResult -> {
-                setCommandStatus(event.connId, "(${cmdHex(event.commandId)}) Success")
-                addLog(event.connId, "CMD 0x${event.commandId.toUByte().toString(16).uppercase()} response [${event.rawBytes.size}b]")
+                if (event.commandId == CommandId.GET_FGSN && event.rawBytes.size > 1) {
+                    val fgsn = event.rawBytes.copyOfRange(1, event.rawBytes.size).decodeToString()
+                    setCommandStatus(event.connId, "FGSN: $fgsn")
+                    addLog(event.connId, "FGSN: $fgsn")
+                } else {
+                    setCommandStatus(event.connId, "(${cmdHex(event.commandId)}) Success")
+                    addLog(event.connId, "CMD 0x${event.commandId.toUByte().toString(16).uppercase()} response [${event.rawBytes.size}b]")
+                }
+            }
+            is HpyEvent.ThroughputResult -> {
+                val label = if (event.timedOut) "Throughput Timeout" else "Throughput Complete"
+                val msg = "$label: ${event.receivedPackets}/${event.expectedPackets} packets, ${event.elapsedMs}ms, ${"%.1f".format(event.throughputKBps)} kB/s"
+                setCommandStatus(event.connId, msg)
+                addLog(event.connId, msg)
+                updateRing(event.connId) { it.copy(throughputProgress = 0, throughputTotal = 0) }
+            }
+            is HpyEvent.ThroughputProgress -> {
+                updateRing(event.connId) {
+                    it.copy(throughputProgress = event.packetsReceived, throughputTotal = event.packetsExpected)
+                }
             }
             is HpyEvent.DebugMessage -> {
                 addLog(event.connId, "DEBUG: ${event.message.decodeToString()}")

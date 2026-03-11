@@ -59,6 +59,7 @@ fun ConnectedScreen(
     var showAssertConfirm by remember { mutableStateOf(false) }
     var showConnParamsDialog by remember { mutableStateOf(false) }
     var showShipModeDialog by remember { mutableStateOf(false) }
+    var showThroughputDialog by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -231,17 +232,165 @@ fun ConnectedScreen(
                 SectionHeader("DAQ Config")
                 InfoRow("Mode", config.modeString)
                 InfoRow("Version", config.version.toString())
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(4.dp))
             }
 
-            // ---- Command Buttons ----
+            // ---- Common grid constants ----
             val gridShape = RoundedCornerShape(4.dp)
             val gridRowHeight = 38.dp
             val gridGap = 2.dp
             val gridContentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
             val isReady = ring.state == HpyConnectionState.READY || ring.state == HpyConnectionState.WAITING
 
+            // ---- Download ----
+            val canStartDownload = isReady &&
+                (ring.deviceInfo?.firmwareTier ?: FirmwareTier.TIER_0) >= FirmwareTier.TIER_1
+            val isDownloading = ring.isDownloading
+            val isActivelyDownloading = ring.state == HpyConnectionState.DOWNLOADING
+            val isWaiting = ring.state == HpyConnectionState.WAITING
+            val isThroughputTesting = ring.state == HpyConnectionState.THROUGHPUT_TESTING
+
+            val shareAction: (() -> Unit)? = if (!isDownloading) {
+                { showShareDialog = true }
+            } else null
+            DownloadSectionHeader("Download", ring.downloadState, shareAction)
+            if (isActivelyDownloading) {
+                Spacer(modifier = Modifier.height(4.dp))
+                if (ring.sessionDownloadTotal > 0) {
+                    @Suppress("DEPRECATION")
+                    LinearProgressIndicator(
+                        progress = ring.sessionDownloadProgress.toFloat() / ring.sessionDownloadTotal,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    val sessionSizeKb = ring.sessionDownloadProgress * 4  // each frame = 4096 bytes = 4 kB
+                    val cumulativeSizeKb = ring.downloadProgress * 4
+                    val transportLabel = if (ring.downloadTransport.isNotEmpty()) "  (${ring.downloadTransport})" else ""
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            "${ring.sessionDownloadProgress} frames (${sessionSizeKb}kB)$transportLabel",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            "${ring.downloadProgress} frames (${cumulativeSizeKb}kB)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.tertiary,
+                        )
+                    }
+                } else {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    Text("Starting download...", style = MaterialTheme.typography.bodySmall)
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+            } else if (isWaiting) {
+                Spacer(modifier = Modifier.height(4.dp))
+                val sizeKb = ring.downloadProgress * 4
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Row {
+                        Text(
+                            "Waiting for data...",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.tertiary,
+                        )
+                        if (ring.rssiWarningValue != null) {
+                            Text(
+                                "  (RSSI Low: ${ring.rssiWarningValue} dBm)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                    Text(
+                        "${ring.downloadProgress} frames (${sizeKb}kB)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+            if (ring.totalFramesDownloaded > 0 && !isDownloading) {
+                InfoRow("Last Download", "${ring.totalFramesDownloaded} frames")
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(gridGap),
+            ) {
+                Button(
+                    onClick = { viewModel.requestStartDownload(connId) },
+                    enabled = canStartDownload && !isDownloading,
+                    modifier = Modifier.weight(1f).height(gridRowHeight),
+                    shape = gridShape,
+                    contentPadding = gridContentPadding,
+                ) {
+                    Text("Start Download")
+                }
+                Button(
+                    onClick = { viewModel.stopDownload(connId) },
+                    enabled = isDownloading,
+                    modifier = Modifier.weight(1f).height(gridRowHeight),
+                    shape = gridShape,
+                    contentPadding = gridContentPadding,
+                    colors = if (isDownloading) {
+                        ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    } else {
+                        ButtonDefaults.buttonColors()
+                    },
+                ) {
+                    Text("Stop Download")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // ---- FW Update ----
+            FwUpdateSection(
+                connId = connId,
+                ring = ring,
+                viewModel = viewModel,
+                isReady = isReady,
+                gridShape = gridShape,
+                gridRowHeight = gridRowHeight,
+                gridGap = gridGap,
+                gridContentPadding = gridContentPadding,
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // ---- Command Buttons ----
             CommandSectionHeader("Commands", ring.commandStatus)
+            if (isThroughputTesting && ring.throughputTotal > 0) {
+                @Suppress("DEPRECATION")
+                LinearProgressIndicator(
+                    progress = ring.throughputProgress.toFloat() / ring.throughputTotal,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                val sizeKb = ring.throughputProgress * 245 / 1024
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        "${ring.throughputProgress} / ${ring.throughputTotal} packets",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        "${sizeKb} kB",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+            } else if (isThroughputTesting) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                Text("Starting throughput test...", style = MaterialTheme.typography.bodySmall)
+                Spacer(modifier = Modifier.height(4.dp))
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(gridGap),
@@ -353,6 +502,26 @@ fun ConnectedScreen(
                 horizontalArrangement = Arrangement.spacedBy(gridGap),
             ) {
                 Button(
+                    onClick = { showShipModeDialog = true },
+                    enabled = isReady,
+                    modifier = Modifier.weight(1f).height(gridRowHeight),
+                    shape = gridShape,
+                    contentPadding = gridContentPadding,
+                ) { Text("Ship Mode") }
+                Button(
+                    onClick = { viewModel.getFgsn(connId) },
+                    enabled = isReady,
+                    modifier = Modifier.weight(1f).height(gridRowHeight),
+                    shape = gridShape,
+                    contentPadding = gridContentPadding,
+                ) { Text("Read FGSN") }
+            }
+            Spacer(modifier = Modifier.height(gridGap))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(gridGap),
+            ) {
+                Button(
                     onClick = { showConnParamsDialog = true },
                     enabled = isReady,
                     modifier = Modifier.weight(1f).height(gridRowHeight),
@@ -360,131 +529,12 @@ fun ConnectedScreen(
                     contentPadding = gridContentPadding,
                 ) { Text("Conn Params") }
                 Button(
-                    onClick = { showShipModeDialog = true },
-                    enabled = isReady,
+                    onClick = { showThroughputDialog = true },
+                    enabled = ring.state == HpyConnectionState.READY,
                     modifier = Modifier.weight(1f).height(gridRowHeight),
                     shape = gridShape,
                     contentPadding = gridContentPadding,
-                ) { Text("Ship Mode") }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // ---- FW Update ----
-            FwUpdateSection(
-                connId = connId,
-                ring = ring,
-                viewModel = viewModel,
-                isReady = isReady,
-                gridShape = gridShape,
-                gridRowHeight = gridRowHeight,
-                gridGap = gridGap,
-                gridContentPadding = gridContentPadding,
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // ---- Download ----
-            val canStartDownload = isReady &&
-                (ring.deviceInfo?.firmwareTier ?: FirmwareTier.TIER_0) >= FirmwareTier.TIER_1
-            val isDownloading = ring.isDownloading
-            val isActivelyDownloading = ring.state == HpyConnectionState.DOWNLOADING
-            val isWaiting = ring.state == HpyConnectionState.WAITING
-
-            val shareAction: (() -> Unit)? = if (!isDownloading) {
-                { showShareDialog = true }
-            } else null
-            DownloadSectionHeader("Download", ring.downloadState, shareAction)
-            if (isActivelyDownloading) {
-                Spacer(modifier = Modifier.height(4.dp))
-                if (ring.sessionDownloadTotal > 0) {
-                    @Suppress("DEPRECATION")
-                    LinearProgressIndicator(
-                        progress = ring.sessionDownloadProgress.toFloat() / ring.sessionDownloadTotal,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    val sessionSizeKb = ring.sessionDownloadProgress * 4  // each frame = 4096 bytes = 4 kB
-                    val cumulativeSizeKb = ring.downloadProgress * 4
-                    val transportLabel = if (ring.downloadTransport.isNotEmpty()) "  (${ring.downloadTransport})" else ""
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(
-                            "${ring.sessionDownloadProgress} frames (${sessionSizeKb}kB)$transportLabel",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        Text(
-                            "${ring.downloadProgress} frames (${cumulativeSizeKb}kB)",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.tertiary,
-                        )
-                    }
-                } else {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    Text("Starting download...", style = MaterialTheme.typography.bodySmall)
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-            } else if (isWaiting) {
-                Spacer(modifier = Modifier.height(4.dp))
-                val sizeKb = ring.downloadProgress * 4
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Row {
-                        Text(
-                            "Waiting for data...",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.tertiary,
-                        )
-                        if (ring.rssiWarningValue != null) {
-                            Text(
-                                "  (RSSI Low: ${ring.rssiWarningValue} dBm)",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error,
-                            )
-                        }
-                    }
-                    Text(
-                        "${ring.downloadProgress} frames (${sizeKb}kB)",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.tertiary,
-                    )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-            }
-            if (ring.totalFramesDownloaded > 0 && !isDownloading) {
-                InfoRow("Last Download", "${ring.totalFramesDownloaded} frames")
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(gridGap),
-            ) {
-                Button(
-                    onClick = { viewModel.requestStartDownload(connId) },
-                    enabled = canStartDownload && !isDownloading,
-                    modifier = Modifier.weight(1f).height(gridRowHeight),
-                    shape = gridShape,
-                    contentPadding = gridContentPadding,
-                ) {
-                    Text("Start Download")
-                }
-                Button(
-                    onClick = { viewModel.stopDownload(connId) },
-                    enabled = isDownloading,
-                    modifier = Modifier.weight(1f).height(gridRowHeight),
-                    shape = gridShape,
-                    contentPadding = gridContentPadding,
-                    colors = if (isDownloading) {
-                        ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                    } else {
-                        ButtonDefaults.buttonColors()
-                    },
-                ) {
-                    Text("Stop Download")
-                }
+                ) { Text("Throughput") }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -582,6 +632,17 @@ fun ConnectedScreen(
                 showShipModeDialog = false
             },
             onDismiss = { showShipModeDialog = false },
+        )
+    }
+
+    // ---- Throughput Dialog ----
+    if (showThroughputDialog) {
+        ThroughputDialog(
+            onStart = { numPackets ->
+                viewModel.startThroughputTest(connId, numPackets)
+                showThroughputDialog = false
+            },
+            onDismiss = { showThroughputDialog = false },
         )
     }
 
@@ -1142,6 +1203,43 @@ private fun DaqConfigureDialog(
 }
 
 @Composable
+private fun ThroughputDialog(
+    onStart: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val packetOptions = listOf(512, 1024, 2048, 4096)
+    var selectedIndex by remember { mutableIntStateOf(1) }  // default 1024
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("L2CAP Throughput Test") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Select number of packets (245 bytes each):")
+                packetOptions.forEachIndexed { index, count ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        RadioButton(
+                            selected = selectedIndex == index,
+                            onClick = { selectedIndex = index },
+                        )
+                        Text("$count packets (${count * 245 / 1024} kB)")
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onStart(packetOptions[selectedIndex]) }) { Text("Start") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
+@Composable
 private fun ShipModeDialog(
     onSend: (Int) -> Unit,
     onDismiss: () -> Unit,
@@ -1349,6 +1447,7 @@ private fun CommandSectionHeader(title: String, commandStatus: String?) {
             color = MaterialTheme.colorScheme.primary,
         )
         if (commandStatus != null) {
+            Spacer(modifier = Modifier.width(8.dp))
             val statusColor = when {
                 commandStatus.contains("Success") -> MaterialTheme.colorScheme.primary
                 commandStatus.contains("Timeout") -> MaterialTheme.colorScheme.tertiary
@@ -1359,6 +1458,8 @@ private fun CommandSectionHeader(title: String, commandStatus: String?) {
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 color = statusColor,
+                textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                modifier = Modifier.weight(1f),
             )
         }
     }
@@ -1394,11 +1495,15 @@ private fun DownloadSectionHeader(title: String, downloadState: String?, onShare
                 color = stateColor,
             )
         } else if (onShare != null) {
-            IconButton(onClick = onShare) {
+            IconButton(
+                onClick = onShare,
+                modifier = Modifier.size(32.dp),
+            ) {
                 Icon(
                     Icons.Default.Share,
                     contentDescription = "Share / Manage Files",
                     tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
                 )
             }
         }
