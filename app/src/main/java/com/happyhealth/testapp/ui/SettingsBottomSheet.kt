@@ -110,8 +110,8 @@ fun SettingsBottomSheet(
             SettingsDropdown(
                 label = "Memfault Chunk Interval",
                 value = current.memfaultMinIntervalMs,
-                options = listOf(0L, 10L * 60_000, 20L * 60_000, 30L * 60_000, 60L * 60_000),
-                format = { if (it == 0L) "Every connection" else "${it / 60_000} min" },
+                options = listOf(0L, 10L * 60_000, 20L * 60_000, 30L * 60_000, 60L * 60_000, Long.MAX_VALUE),
+                format = { when (it) { 0L -> "Every connection"; Long.MAX_VALUE -> "Never"; else -> "${it / 60_000} min" } },
                 onSelect = { current = current.copy(memfaultMinIntervalMs = it) },
             )
 
