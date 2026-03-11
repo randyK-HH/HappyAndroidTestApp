@@ -229,8 +229,9 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         frameWriters.remove(connId.value)?.destroy()
         fwImageBytesMap.remove(connId.value)
         _fwImageInfoMap.value = _fwImageInfoMap.value - connId.value
-        logDeviceSerial.remove(connId.value)
-        logDeviceName.remove(connId.value)
+        // NOTE: logDeviceSerial and logDeviceName are intentionally preserved across
+        // disconnect so the DeviceInfo handler can detect a device change on slot reuse
+        // and auto-save/clear the old log.
         _faultCounts.value = _faultCounts.value - connId.value
         _ncfCounts.value = _ncfCounts.value - connId.value
         _retryCounts.value = _retryCounts.value - connId.value
@@ -686,6 +687,10 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                         cleared[event.connId.value] = emptyList()
                         _connectionLogs.value = cleared
                         _faultCounts.value = _faultCounts.value + (event.connId.value to 0)
+                        _ncfCounts.value = _ncfCounts.value + (event.connId.value to 0)
+                        _retryCounts.value = _retryCounts.value + (event.connId.value to 0)
+                        _reconnectionCounts.value = _reconnectionCounts.value + (event.connId.value to 0)
+                        intervalStartFc.remove(event.connId.value)
                     }
                 }
                 logDeviceSerial[event.connId.value] = event.info.serialNumber
