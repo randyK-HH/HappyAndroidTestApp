@@ -57,6 +57,8 @@ fun ConnectedScreen(
     var showShareDialog by remember { mutableStateOf(false) }
     var showSyncFrameDialog by remember { mutableStateOf(false) }
     var showAssertConfirm by remember { mutableStateOf(false) }
+    var showConnParamsDialog by remember { mutableStateOf(false) }
+    var showShipModeDialog by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -345,6 +347,26 @@ fun ConnectedScreen(
                     contentPadding = gridContentPadding,
                 ) { Text("Assert") }
             }
+            Spacer(modifier = Modifier.height(gridGap))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(gridGap),
+            ) {
+                Button(
+                    onClick = { showConnParamsDialog = true },
+                    enabled = isReady,
+                    modifier = Modifier.weight(1f).height(gridRowHeight),
+                    shape = gridShape,
+                    contentPadding = gridContentPadding,
+                ) { Text("Conn Params") }
+                Button(
+                    onClick = { showShipModeDialog = true },
+                    enabled = isReady,
+                    modifier = Modifier.weight(1f).height(gridRowHeight),
+                    shape = gridShape,
+                    contentPadding = gridContentPadding,
+                ) { Text("Ship Mode") }
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -549,6 +571,28 @@ fun ConnectedScreen(
             dismissButton = {
                 TextButton(onClick = { showAssertConfirm = false }) { Text("Cancel") }
             },
+        )
+    }
+
+    // ---- Ship Mode Dialog ----
+    if (showShipModeDialog) {
+        ShipModeDialog(
+            onSend = { countdown ->
+                viewModel.enableShipMode(connId, countdown)
+                showShipModeDialog = false
+            },
+            onDismiss = { showShipModeDialog = false },
+        )
+    }
+
+    // ---- Conn Params Dialog ----
+    if (showConnParamsDialog) {
+        ConnParamsDialog(
+            onSend = { useProvided, freezeCi, setClock, ciMax, ciMin, slaveLatency, clock ->
+                viewModel.setConnectionParams(connId, useProvided, freezeCi, setClock, ciMax, ciMin, slaveLatency, clock)
+                showConnParamsDialog = false
+            },
+            onDismiss = { showConnParamsDialog = false },
         )
     }
 
@@ -1090,6 +1134,198 @@ private fun DaqConfigureDialog(
                 )
                 onUpdate(newConfig, applyImmediately)
             }) { Text("Update") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
+@Composable
+private fun ShipModeDialog(
+    onSend: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var countdownText by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Enable Ship Mode") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Warning: Ship mode will disable the ring. The ring will drain its battery if not placed on the charger within the countdown period.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                OutlinedTextField(
+                    value = countdownText,
+                    onValueChange = { countdownText = it.filter { c -> c.isDigit() } },
+                    label = { Text("Countdown Minutes") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "0 = default 20 min, 255 = disable, max 120",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val countdown = countdownText.toIntOrNull() ?: 0
+                onSend(countdown.coerceIn(0, 255))
+            }) { Text("Send") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
+@Composable
+private fun ConnParamsDialog(
+    onSend: (Boolean, Boolean, Boolean, Int, Int, Int, Byte) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var useProvidedParams by remember { mutableStateOf(false) }
+    var freezeDynamicCi by remember { mutableStateOf(false) }
+    var setClock by remember { mutableStateOf(false) }
+    var ciMaxText by remember { mutableStateOf("") }
+    var ciMinText by remember { mutableStateOf("") }
+    var slaveLatencyText by remember { mutableStateOf("") }
+    var clockRate by remember { mutableIntStateOf(0) } // 0=16MHz, 1=48MHz, 2=96MHz
+
+    val small = MaterialTheme.typography.bodySmall
+    val numKeyboard = KeyboardOptions(keyboardType = KeyboardType.Number)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Set Connection Params") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                // Flags
+                Text(
+                    "Flags",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                HorizontalDivider()
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Use Provided Params", style = small)
+                    Switch(checked = useProvidedParams, onCheckedChange = { useProvidedParams = it })
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Freeze Dynamic CI", style = small)
+                    Switch(checked = freezeDynamicCi, onCheckedChange = { freezeDynamicCi = it })
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Set Clock", style = small)
+                    Switch(checked = setClock, onCheckedChange = { setClock = it })
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Parameters
+                Text(
+                    "Parameters",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                HorizontalDivider()
+                OutlinedTextField(
+                    value = ciMaxText,
+                    onValueChange = { ciMaxText = it.filter { c -> c.isDigit() } },
+                    label = { Text("CI Max", style = MaterialTheme.typography.labelSmall) },
+                    singleLine = true,
+                    keyboardOptions = numKeyboard,
+                    textStyle = small,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "0 = default 30ms, max 60",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = ciMinText,
+                    onValueChange = { ciMinText = it.filter { c -> c.isDigit() } },
+                    label = { Text("CI Min", style = MaterialTheme.typography.labelSmall) },
+                    singleLine = true,
+                    keyboardOptions = numKeyboard,
+                    textStyle = small,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "0 = default 15ms, max 60",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = slaveLatencyText,
+                    onValueChange = { slaveLatencyText = it.filter { c -> c.isDigit() } },
+                    label = { Text("Slave Latency", style = MaterialTheme.typography.labelSmall) },
+                    singleLine = true,
+                    keyboardOptions = numKeyboard,
+                    textStyle = small,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "0 = default 30, range 0-60",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Clock Rate
+                Text(
+                    "Clock Rate",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                HorizontalDivider()
+                listOf("16 MHz" to 0, "48 MHz" to 1, "96 MHz" to 2).forEach { (label, value) ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(
+                            selected = clockRate == value,
+                            onClick = { clockRate = value },
+                        )
+                        Text(label, style = small)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val ciMax = (ciMaxText.toIntOrNull() ?: 0).coerceIn(0, 60)
+                val ciMin = (ciMinText.toIntOrNull() ?: 0).coerceIn(0, 60)
+                val sl = (slaveLatencyText.toIntOrNull() ?: 0).coerceIn(0, 60)
+                onSend(useProvidedParams, freezeDynamicCi, setClock, ciMax, ciMin, sl, clockRate.toByte())
+            }) { Text("Send") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel") }

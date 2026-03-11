@@ -307,6 +307,25 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
         api.assert(connId)
     }
 
+    fun enableShipMode(connId: ConnectionId, countdownMinutes: Int) {
+        clearCommandStatus(connId)
+        api.enableShipMode(connId, countdownMinutes)
+    }
+
+    fun setConnectionParams(
+        connId: ConnectionId,
+        useProvidedParams: Boolean,
+        freezeDynamicCi: Boolean,
+        setClock: Boolean,
+        ciMax: Int,
+        ciMin: Int,
+        slaveLatency: Int,
+        clock: Byte,
+    ) {
+        clearCommandStatus(connId)
+        api.setConnectionParams(connId, useProvidedParams, freezeDynamicCi, setClock, ciMax, ciMin, slaveLatency, clock)
+    }
+
     fun requestStartDownload(connId: ConnectionId) {
         updateRing(connId) { it.copy(rssiWarningValue = null) }
         pendingRssiAction[connId.value] = "download"
