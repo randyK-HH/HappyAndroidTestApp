@@ -145,7 +145,7 @@ fun ScanScreen(
             if (connectedRings.isNotEmpty()) {
                 item {
                     Text(
-                        "Connected Rings",
+                        "Connected Rings (${connectedRings.size})",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(vertical = 8.dp),
@@ -164,7 +164,7 @@ fun ScanScreen(
             // ---- Discovered (Non-Connected) Rings Section ----
             item {
                 Text(
-                    "Discovered Devices",
+                    "Discovered Devices (${unconnectedDevices.size})",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(vertical = 8.dp),
