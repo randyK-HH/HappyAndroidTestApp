@@ -852,7 +852,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                 if (event.sessionFramesDownloaded % 8 == 0 || event.sessionFramesDownloaded == event.sessionFramesTotal) {
                     val startFc = intervalStartFc.remove(event.connId.value) ?: event.currentFc
                     val rebootFlag = if (event.currentFc < startFc) " *" else ""
-                    addLog(event.connId, "D/L Prog: ${event.sessionFramesDownloaded}/${event.sessionFramesTotal} (${event.transport}) (fc:${startFc}-${event.currentFc})$rebootFlag")
+                    addLog(event.connId, "D/L: ${event.sessionFramesDownloaded}/${event.sessionFramesTotal} (${event.transport}) (fc:${startFc}-${event.currentFc})$rebootFlag")
                 }
             }
             is HpyEvent.DownloadFrame -> {
