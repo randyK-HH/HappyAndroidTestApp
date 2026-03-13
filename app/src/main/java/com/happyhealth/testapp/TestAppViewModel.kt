@@ -859,6 +859,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                 frameWriters[event.connId.value]?.writeFrame(event.frameData)
             }
             is HpyEvent.DownloadInterrupted -> {
+                intervalStartFc.remove(event.connId.value)
                 val writer = frameWriters[event.connId.value]
                 if (writer != null && event.framesToDiscard > 0) {
                     writer.discardFrames(event.framesToDiscard)
@@ -866,6 +867,7 @@ class TestAppViewModel(application: Application) : AndroidViewModel(application)
                 }
             }
             is HpyEvent.DownloadComplete -> {
+                intervalStartFc.remove(event.connId.value)
                 addLog(event.connId, "DownloadComplete: ${event.sessionFrames} frames")
                 val cumulative = _connectedRings.value[event.connId.value]?.downloadProgress ?: 0
                 addLog(event.connId, "Cumulative: $cumulative frames")
